@@ -66,11 +66,11 @@ results |> summary()
     # A tibble: 5 × 6
       expression          min   median `itr/sec` mem_alloc `gc/sec`
       <bch:expr>     <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-    1 vapply           9.47ms   11.4ms      87.2    3.76MB   16.0  
-    2 lapply           9.31ms   10.6ms      92.7    3.44MB   18.3  
-    3 mirai           22.65ms   26.2ms      37.3  736.67KB    0.568
-    4 vapply_to_list   9.39ms   10.7ms      91.3    3.44MB   18.7  
-    5 purrr_map        9.41ms   12.1ms      68.2     4.2MB   13.0  
+    1 vapply           9.46ms     11ms      88.8    3.76MB   14.5  
+    2 lapply           9.44ms   10.9ms      90.4    3.44MB   15.3  
+    3 mirai           22.86ms     26ms      38.2  736.67KB    0.582
+    4 vapply_to_list   9.45ms   10.8ms      90.0    3.44MB   15.9  
+    5 purrr_map        9.46ms   10.4ms      93.6     4.2MB   15.9  
 
 ``` r
 results |> summary(relative = TRUE)
@@ -79,11 +79,11 @@ results |> summary(relative = TRUE)
     # A tibble: 5 × 6
       expression       min median `itr/sec` mem_alloc `gc/sec`
       <bch:expr>     <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-    1 vapply          1.02   1.08      2.34      5.23     28.1
-    2 lapply          1      1         2.48      4.78     32.2
-    3 mirai           2.43   2.47      1         1         1  
-    4 vapply_to_list  1.01   1.01      2.45      4.78     32.9
-    5 purrr_map       1.01   1.14      1.83      5.84     22.9
+    1 vapply          1.00   1.05      2.32      5.23     24.8
+    2 lapply          1      1.04      2.37      4.78     26.3
+    3 mirai           2.42   2.49      1         1         1  
+    4 vapply_to_list  1.00   1.03      2.36      4.78     27.3
+    5 purrr_map       1.00   1         2.45      5.84     27.3
 
 NB: the `mem_alloc` column should not be interpreted as total memory
 usage for `mirai`: `bench::mark()` records R heap allocations via
@@ -120,6 +120,14 @@ To investigate this question we use two approaches:
     the bottlenecks are, and finding out whether we can improve things
     with parallelization.
 
+There are some functions in loo which could benefit from
+parallelization, potentially to great effect, as these functions appear
+to do “embarrassingly parallel” work–meaning that they do independent
+tasks which seem amenable to speedups by executing those tasks
+concurrently. These as prime targets for parallelization and somewhat
+easily identified, we do so by inspection, as covered in the next
+section.
+
 ### Analytic search
 
 <!-- TODO -->
@@ -131,9 +139,52 @@ implement parallelization \* record time (define which time you are
 using) for parallel and unparallel version \* report results (how much
 speed up we can get?) \* Short conclusion
 
+We can see in
+[`elpd_loo_approximation()`](https://github.com/stan-dev/loo/blob/master/R/loo_subsample.R#L539)
+that we don’t push `cores` through to `loo.function()` so right now,
+this function only parallelizes if users set the `mc.cores` options as
+`loo.function()` will pick this up when its called without specifying
+`cores`. This is a super simple fix and could speed up some code,
+depending on how users tend to set their `cores`.
+
+[Later
+on](https://github.com/stan-dev/loo/blob/master/R/loo_subsample.R#L587)
+in the same function, we can see that parallelization had been thought
+of but not implemented yet for the delta method approximations in that
+function (`waic_grad`, `waic_grad_marginal`, `waic_hess`). Each of these
+loop row-wise over data and shouldn’t be too difficult to parallelize.
+More careful thought must go into determining if parallelization is even
+worth it, and more careful scrutiny of the callsites of
+`elpd_loo_approximation()` to ensure it doesn’t accidentally induce
+nested parallelization (see
+<a href="#sec-nested-parallelization" class="quarto-xref">Section 5</a>)–though
+at first blush this seems unlikely.
+
+In
+[`waic.function()`](https://github.com/stan-dev/loo/blob/master/R/waic.R#L109)
+`loo` simply doesn’t parallelize the work, relying only on a base
+`lapply()`. This seems like a pretty easy fix, and there doesn’t seem to
+be any reason to not use parallelization. Again, should be careful and
+benchmark to ensure we aren’t accidentally eating performance or RAM,
+but this could be a large, free win.
+
+Lastly, in
+[`ap_psis.array()`](https://github.com/stan-dev/loo/blob/master/R/psis_approximate_posterior.R#L101),
+which mostly just converts array arguments to matrices before passing
+the buck to the matrix method, we can note that cores gets hardcoded to
+1 when calling `ap_psis.matrix()`. There doesn’t seem to be any real
+reason to do this, eating the input `cores` like in the first example;
+unlike there though, we pass `cores = 1`. This is not a huge issue
+because users probably don’t use this function, since most times they
+would be working directly with matrixes. Further evidencing this
+hypothesis is [this
+line](https://github.com/stan-dev/loo/blob/master/R/psis_approximate_posterior.R#L100)
+which should error out since it references a nonexistent `r_eff`. That
+obviously needs to be fixed, and this function tested.
+
 ### Performance testing
 
-<!-- TODO -->
+<!-- TODO: profiling -->
 
 - short description of approach for running performance test
 - run performance test
@@ -150,12 +201,12 @@ helpful (see
 we found two potential speedups–in these places, we may be able to
 benefit from *vectorizing* functions instead of parallelizing a loop.
 Vectorization is advantageous in these spots as we would be rewriting R
-loops as optimized matrix operations \[5, Sec. 24.5\] - 24.7.
+loops as optimized matrix operations \[5, Secs. 24.5–24.7\].
 
 > Matrix algebra is a general example of vectorisation. There loops are
 > executed by highly tuned external libraries like BLAS. If you can
 > figure out a way to use matrix algebra to solve your problem, you’ll
-> often get a very fast solution. - Wickham \[5, Sec. 24.5\]
+> often get a very fast solution.
 
 Of course, for these potential improvements, we should first write tests
 for correctness, then write benchmarks in the PR.
@@ -259,7 +310,7 @@ sessioninfo::session_info(
 
     Warning in system2("quarto", "-V", stdout = TRUE, env = paste0("TMPDIR=", :
     running command '"quarto"
-    TMPDIR=C:/Users/visru/AppData/Local/Temp/RtmpaI9dsd/file3398f5662ee -V' had
+    TMPDIR=C:/Users/visru/AppData/Local/Temp/Rtmp4cqzat/file2b4c1563320 -V' had
     status 1
 
     ─ Session info ───────────────────────────────────────────────────────────────

@@ -97,6 +97,8 @@ To investigate this question we use two approaches:
 1) Inspecting the code base and figuring out at which points parallelization might be helpful ("analytic search")
 2) Running performance tests on the loo pipeline, investigating where the bottlenecks are, and finding out whether we can improve things with parallelization.
 
+There are some functions in loo which could benefit from parallelization, potentially to great effect, as these functions appear to do "embarrassingly parallel" work--meaning that they do independent tasks which seem amenable to speedups by executing those tasks concurrently. These as prime targets for parallelization and somewhat easily identified, we do so by inspection, as covered in the next section.
+
 ### Analytic search
 
 <!-- TODO -->
@@ -110,9 +112,17 @@ For each function/place in code where you think parallelization might help, do:
     *  report results (how much speed up we can get?)
 *  Short conclusion
 
+We can see in [`elpd_loo_approximation()`](https://github.com/stan-dev/loo/blob/master/R/loo_subsample.R#L539) that we don't push `cores` through to `loo.function()` so right now, this function only parallelizes if users set the `mc.cores` options as `loo.function()` will pick this up when its called without specifying `cores`. This is a super simple fix and could speed up some code, depending on how users tend to set their `cores`.
+
+[Later on](https://github.com/stan-dev/loo/blob/master/R/loo_subsample.R#L587) in the same function, we can see that parallelization had been thought of but not implemented yet for the delta method approximations in that function (`waic_grad`, `waic_grad_marginal`, `waic_hess`). Each of these loop row-wise over data and shouldn't be too difficult to parallelize. More careful thought must go into determining if parallelization is even worth it, and more careful scrutiny of the callsites of `elpd_loo_approximation()` to ensure it doesn't accidentally induce nested parallelization (see @sec-nested-parallelization)--though at first blush this seems unlikely.
+
+In [`waic.function()`](https://github.com/stan-dev/loo/blob/master/R/waic.R#L109) `loo` simply doesn't parallelize the work, relying only on a base `lapply()`. This seems like a pretty easy fix, and there doesn't seem to be any reason to not use parallelization. Again, should be careful and benchmark to ensure we aren't accidentally eating performance or RAM, but this could be a large, free win.
+
+Lastly, in [`ap_psis.array()`](https://github.com/stan-dev/loo/blob/master/R/psis_approximate_posterior.R#L101), which mostly just converts array arguments to matrices before passing the buck to the matrix method, we can note that cores gets hardcoded to 1 when calling `ap_psis.matrix()`. There doesn't seem to be any real reason to do this, eating the input `cores` like in the first example; unlike there though, we pass `cores = 1`. This is not a huge issue because users probably don't use this function, since most times they would be working directly with matrixes. Further evidencing this hypothesis is [this line](https://github.com/stan-dev/loo/blob/master/R/psis_approximate_posterior.R#L100) which should error out since it references a nonexistent `r_eff`. That obviously needs to be fixed, and this function tested.
+
 ### Performance testing
 
-<!-- TODO -->
+<!-- TODO: profiling -->
 
 * short description of approach for running performance test
 * run performance test
@@ -122,10 +132,9 @@ For each function/place in code where you think parallelization might help, do:
 
 ## Vectorization
 
-When browsing the codebase to find places where parallelization could be helpful (see @sec-parallelization-benefit), we found two potential speedups--in these places, we may be able to benefit from _vectorizing_ functions instead of parallelizing a loop. Vectorization is advantageous in these spots as we would be rewriting R loops as optimized matrix operations [@advr, secs. 24.5 - 24.7].
+When browsing the codebase to find places where parallelization could be helpful (see @sec-parallelization-benefit), we found two potential speedups--in these places, we may be able to benefit from _vectorizing_ functions instead of parallelizing a loop. Vectorization is advantageous in these spots as we would be rewriting R loops as optimized matrix operations [@advr, secs. 24.5-24.7].
 
 > Matrix algebra is a general example of vectorisation. There loops are executed by highly tuned external libraries like BLAS. If you can figure out a way to use matrix algebra to solve your problem, you’ll often get a very fast solution.
-> - Wickham [@advr, sec. 24.5]
 
 Of course, for these potential improvements, we should first write tests for correctness, then write benchmarks in the PR.
 
@@ -137,7 +146,7 @@ Similarly, though less interesting, is a gradient calculation in [`stacking_weig
 
 These two loops seem like low hanging fruit and well worth the time to implement.
 
-## Nested parallelization
+## Nested parallelization {#sec-nested-parallelization}
 
 When updating `loo` we wish to avoid "nested parallelization", i.e. attempting to compute something in parallel, when already in a parallel process. Take this nonfunctioning `mirai` code as an example:
 
