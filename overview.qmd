@@ -2,6 +2,85 @@
 title: Parallelization in loo (current state)
 ---
 
+## What is parallelization?
+
+<!-- TODO: what is parallelization, why we would want it, differences in multprocessing/multithreading, etc., how to do in R, how does mirai work -->
+
+### Serial `mirai` execution
+
+Currently, parallelization in loo goes through [three paths](https://github.com/stan-dev/loo/blob/05a6bd20af83c919ba7a5572e3e0a50426c17a77/R/importance_sampling.R#L206) @loo:
+
+1. Serial execution using `lapply()`
+2. Forking through `parallel::mclapply()`
+3. Fresh processes through `parallel::parLapply()`
+
+The serial execution path is taken when the `cores` argument is equal to 1, and forking is only available on Linux and MacOS. Since `mirai` @mirai neatly subsumes paths 2 and 3, a question we had was what would the performance hit be if we also removed 1--that is, if a user requested serial execution, what do we lose by using `mirai` with a single core. 
+
+```{r}
+#| label: all-equal-helper
+#| include: false
+same_numeric_values <- function(a, b) {
+  all.equal(
+    a |> unlist(use.names = FALSE) |> unname(),
+    b |> unlist(use.names = FALSE) |> unname(),
+    check.attributes = FALSE,
+    tolerance = sqrt(.Machine$double.eps)
+  ) |>
+    isTRUE()
+}
+```
+
+```{r}
+#| label: serial-mirai-benchmark
+log_ratios <- -loo::example_loglik_matrix()
+S <- nrow(log_ratios)
+N <- ncol(log_ratios)
+tail_len <- loo:::n_pareto(r_eff = rep(1, N), S = S)
+
+x <- Map(
+  \(i) {
+    list(
+      log_ratios_i = log_ratios[, i],
+      tail_len_i = tail_len[i]
+    )
+  },
+  seq_len(N)
+)
+
+work <- function(s) {
+  loo:::do_psis_i(
+    log_ratios_i = s$log_ratios_i,
+    tail_len_i = s$tail_len_i
+  )$pareto_k
+}
+
+mirai::daemons(1)
+
+results <- bench::mark(
+  vapply = vapply(x, work, numeric(1)),
+  lapply = lapply(x, work),
+  mirai = mirai::mirai_map(x, work)[],
+  vapply_to_list = vapply(x, work, numeric(1)) |> as.list(),
+  purrr_map = purrr::map_dbl(x, work),
+  check = same_numeric_values,
+  iterations = 200
+)
+```
+
+Note that `mirai_map()` and `lapply()` results are lists. `same_numeric_values()`'s definition is elided from output but simply checks that results are identical without counting unlisting as part of the benchmark (unlike `vapply_to_list`).
+
+```{r}
+#| label: serial-mirai-results
+results |> summary()
+results |> summary(relative = TRUE)
+```
+
+NB: the `mem_alloc` column should not be interpreted as total memory usage for `mirai`: `bench::mark()` records R heap allocations via `utils::Rprofmem()`, which is not able to track daemons' memory usage [@bench; @R; @mirai].
+
+`mirai_map()` with a single daemon has a median runtime of 23.3ms, roughly 2.2x slower than the fastest in-process approach. Of course, in absolute terms the difference is negligible, adding only about 10ms. The memory usage of all in-process approaches are relatively close to one another. `vapply()`'s small memory overhead may probably be attributed to the extra work it does validating types and lengths and such @R.
+
+In short, it is probably a good idea to directly test the effects of using `mirai` execution in `loo`, but it is likely that we will find that we should keep the unique single core execution path.
+
 ## Where is parallelization currently in use?
 
 * `function()`
@@ -68,9 +147,11 @@ mirai_map(
 
 We first are doing something parallely over values of `xs`, but then we try to work in parallel again for each value from `xs`! The main problem here is oversubscription: we spawn `n` outer workers, let say, then for each we spawn another `m` inner workers. In the package context though, this implementation would be far more complex, and would probably be hidden completely from users. This becomes a problem when a user sets `n`, the outer parallel workers, to # cores - 1[^1], as the actual number of parallel tasks could be as large as $n * m$. Oversubscription is bad because, in this context, we are mostly running CPU heavy tasks where each process takes time and needs its own core. Oversubscription is promising more parallelization than what the hardware can provide--note that parallelization usually has some [fixed startup costs as well](../experiments/mirai_overhead.md), so we would probably lose performance. In `loo` specifically, we must be careful when parallelizing functions to ensure we do not accidentally have nested parallelization. 
 
+<!-- TODO: update codes -->
 [^1]: This is a common heuristic for number of threads/daemons/workers/etc. to use because it leaves 1 core free to do normal computer things, lest the system become unresponsive. Note this doesn't account for memory usage at all--if you have 8n memory but send out n tasks which each use "1" memory, you will run out of memory. See [the note on memory](memory.md).
 
 ### Where do we currently find nested parallelization in `loo`?
+<!-- TODO -->
 * short description of function
 * do you see any challenges with the identified functions?
 * should nested parallelisation run parallel or sequential?
@@ -79,7 +160,20 @@ We first are doing something parallely over values of `xs`, but then we try to w
 ### Potential problems with packages that make use of `loo` such that nested parallelization can occur?
 However, we know that other packages also call `loo` functions, which is another potential vector for nested parallelization. To this end, it seems like `brms` is the only (Stan) package where this could even be vaguely possible, but doing so seems to necessitate wilful parallelization not provided natively by `brms`. This merits further investigation, but it seems like we can (softly) table concerns regarding external nested parallelization for now.
 
+<!-- TODO -->
 Make a list of packages of which you have thought of:
 * package name
 * Any issues that you see?
 * (make a short note even if you don't see issues)
+
+## Appendix
+
+```{r}
+#| label: session-info
+#| cache: false
+sessioninfo::session_info(
+  pkgs = c("loo", "mirai", "bench", "purrr"),
+  info = c("platform", "packages"),
+  dependencies = FALSE
+)
+```

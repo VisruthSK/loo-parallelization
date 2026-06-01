@@ -3,5 +3,7 @@ format: gfm
 embed-resources: true
 execute: 
   cache: true
+  autodep: true
+  cache-comments: false
 bibliography: references.bib
 csl: ieee-with-url.csl

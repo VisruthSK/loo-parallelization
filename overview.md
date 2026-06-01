@@ -1,6 +1,109 @@
 # Parallelization in loo (current state)
 
 
+## What is parallelization?
+
+<!-- TODO: what is parallelization, why we would want it, differences in multprocessing/multithreading, etc., how to do in R, how does mirai work -->
+
+### Serial `mirai` execution
+
+Currently, parallelization in loo goes through [three
+paths](https://github.com/stan-dev/loo/blob/05a6bd20af83c919ba7a5572e3e0a50426c17a77/R/importance_sampling.R#L206)
+\[1\]:
+
+1.  Serial execution using `lapply()`
+2.  Forking through `parallel::mclapply()`
+3.  Fresh processes through `parallel::parLapply()`
+
+The serial execution path is taken when the `cores` argument is equal to
+1, and forking is only available on Linux and MacOS. Since `mirai` \[2\]
+neatly subsumes paths 2 and 3, a question we had was what would the
+performance hit be if we also removed 1–that is, if a user requested
+serial execution, what do we lose by using `mirai` with a single core.
+
+``` r
+log_ratios <- -loo::example_loglik_matrix()
+S <- nrow(log_ratios)
+N <- ncol(log_ratios)
+tail_len <- loo:::n_pareto(r_eff = rep(1, N), S = S)
+
+x <- Map(
+  \(i) {
+    list(
+      log_ratios_i = log_ratios[, i],
+      tail_len_i = tail_len[i]
+    )
+  },
+  seq_len(N)
+)
+
+work <- function(s) {
+  loo:::do_psis_i(
+    log_ratios_i = s$log_ratios_i,
+    tail_len_i = s$tail_len_i
+  )$pareto_k
+}
+
+mirai::daemons(1)
+
+results <- bench::mark(
+  vapply = vapply(x, work, numeric(1)),
+  lapply = lapply(x, work),
+  mirai = mirai::mirai_map(x, work)[],
+  vapply_to_list = vapply(x, work, numeric(1)) |> as.list(),
+  purrr_map = purrr::map_dbl(x, work),
+  check = same_numeric_values,
+  iterations = 200
+)
+```
+
+Note that `mirai_map()` and `lapply()` results are lists.
+`same_numeric_values()`’s definition is elided from output but simply
+checks that results are identical without counting unlisting as part of
+the benchmark (unlike `vapply_to_list`).
+
+``` r
+results |> summary()
+```
+
+    # A tibble: 5 × 6
+      expression          min   median `itr/sec` mem_alloc `gc/sec`
+      <bch:expr>     <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
+    1 vapply           9.39ms   10.4ms      93.1    3.37MB   15.8  
+    2 lapply           9.33ms     11ms      88.8    3.07MB   15.1  
+    3 mirai           20.77ms   23.3ms      41.9  736.67KB    0.639
+    4 vapply_to_list   9.29ms   11.1ms      88.6    3.07MB   15.0  
+    5 purrr_map        9.49ms   11.2ms      85.2    3.86MB   14.5  
+
+``` r
+results |> summary(relative = TRUE)
+```
+
+    # A tibble: 5 × 6
+      expression       min median `itr/sec` mem_alloc `gc/sec`
+      <bch:expr>     <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
+    1 vapply          1.01   1         2.22      4.68     24.7
+    2 lapply          1.00   1.06      2.12      4.27     23.6
+    3 mirai           2.24   2.24      1         1         1  
+    4 vapply_to_list  1      1.06      2.11      4.27     23.5
+    5 purrr_map       1.02   1.08      2.03      5.37     22.6
+
+NB: the `mem_alloc` column should not be interpreted as total memory
+usage for `mirai`: `bench::mark()` records R heap allocations via
+`utils::Rprofmem()`, which is not able to track daemons’ memory usage
+\[2\], \[3\], \[4\].
+
+`mirai_map()` with a single daemon has a median runtime of 23.3ms,
+roughly 2.2x slower than the fastest in-process approach. Of course, in
+absolute terms the difference is negligible, adding only about 10ms. The
+memory usage of all in-process approaches are relatively close to one
+another. `vapply()`’s small memory overhead may probably be attributed
+to the extra work it does validating types and lengths and such \[4\].
+
+In short, it is probably a good idea to directly test the effects of
+using `mirai` execution in `loo`, but it is likely that we will find
+that we should keep the unique single core execution path.
+
 ## Where is parallelization currently in use?
 
 - `function()`
@@ -40,16 +143,16 @@ speed up we can get?) \* Short conclusion
 
 When browsing the codebase to find places where parallelization could be
 helpful (see
-<a href="#sec-parallelization-benefit" class="quarto-xref">Section 2</a>),
+<a href="#sec-parallelization-benefit" class="quarto-xref">Section 3</a>),
 we found two potential speedups–in these places, we may be able to
 benefit from *vectorizing* functions instead of parallelizing a loop.
 Vectorization is advantageous in these spots as we would be rewriting R
-loops as optimized matrix operations \[1, Sec. 24.5\] - 24.7.
+loops as optimized matrix operations \[5, Sec. 24.5\] - 24.7.
 
 > Matrix algebra is a general example of vectorisation. There loops are
 > executed by highly tuned external libraries like BLAS. If you can
 > figure out a way to use matrix algebra to solve your problem, you’ll
-> often get a very fast solution. - Wickham \[1, Sec. 24.5\]
+> often get a very fast solution. - Wickham \[5, Sec. 24.5\]
 
 Of course, for these potential improvements, we should first write tests
 for correctness, then write benchmarks in the PR.
@@ -65,7 +168,7 @@ Bayesian bootstrap iterations where it seems quite plausible to swap to
 matrix operations. This could potentially be a large speedup as the loop
 is large, being of length `BB_n`, which defaults to 1,000 replications.
 There don’t appear to be any reallocations in the loop, so the speedup
-will probably be dominated by the efficiency of matrix ops \[1, Secs.
+will probably be dominated by the efficiency of matrix ops \[5, Secs.
 5.3.1, 24.6\]. This is tracked in \#XXX. <!-- TODO: PR -->
 
 Similarly, though less interesting, is a gradient calculation in
@@ -113,7 +216,11 @@ performance. In `loo` specifically, we must be careful when
 parallelizing functions to ensure we do not accidentally have nested
 parallelization.
 
+<!-- TODO: update codes -->
+
 ### Where do we currently find nested parallelization in `loo`?
+
+<!-- TODO -->
 
 - short description of function
 - do you see any challenges with the identified functions?
@@ -130,15 +237,95 @@ parallelization not provided natively by `brms`. This merits further
 investigation, but it seems like we can (softly) table concerns
 regarding external nested parallelization for now.
 
+<!-- TODO -->
+
 Make a list of packages of which you have thought of: \* package name \*
 Any issues that you see? \* (make a short note even if you don’t see
 issues)
 
+## Appendix
+
+``` r
+sessioninfo::session_info(
+  pkgs = c("loo", "mirai", "bench", "purrr"),
+  info = c("platform", "packages"),
+  dependencies = FALSE
+)
+```
+
+    Warning in system2("quarto", "-V", stdout = TRUE, env = paste0("TMPDIR=", :
+    running command '"quarto"
+    TMPDIR=C:/Users/visru/AppData/Local/Temp/RtmpiqNbnI/file4cc57eb5023 -V' had
+    status 1
+
+    ─ Session info ───────────────────────────────────────────────────────────────
+     setting  value
+     version  R version 4.6.0 (2026-04-24 ucrt)
+     os       Windows 11 x64 (build 26200)
+     system   x86_64, mingw32
+     ui       RTerm
+     language (EN)
+     collate  English_United States.utf8
+     ctype    English_United States.utf8
+     tz       America/Los_Angeles
+     date     2026-06-01
+     pandoc   3.8.3 @ c:\\Program Files\\Positron\\resources\\app\\quarto\\bin\\tools/ (via rmarkdown)
+     quarto   NA @ C:\\Users\\visru\\AppData\\Local\\Programs\\Quarto\\bin\\quarto.exe
+
+    ─ Packages ───────────────────────────────────────────────────────────────────
+     package * version date (UTC) lib source
+     bench     1.1.4   2025-01-16 [1] RSPM (R 4.6.0)
+     loo       2.9.0   2025-12-23 [1] RSPM (R 4.6.0)
+     mirai     2.7.0   2026-05-08 [1] RSPM (R 4.6.0)
+     purrr     1.2.2   2026-04-10 [1] RSPM (R 4.6.0)
+
+     [1] C:/Users/visru/AppData/Local/R/win-library/4.6
+     [2] C:/Program Files/R/R-4.6.0/library
+
+    ──────────────────────────────────────────────────────────────────────────────
+
 <div id="refs" class="references csl-bib-body" entry-spacing="0">
+
+<div id="ref-loo" class="csl-entry">
+
+<span class="csl-left-margin">\[1\]
+</span><span class="csl-right-inline">A. Vehtari *et al.*, “Loo:
+Efficient leave-one-out cross-validation and WAIC for bayesian models.”
+2025. Available: <https://mc-stan.org/loo/></span>
+
+</div>
+
+<div id="ref-mirai" class="csl-entry">
+
+<span class="csl-left-margin">\[2\]
+</span><span class="csl-right-inline">C. Gao, *Mirai: Minimalist async
+evaluation framework for r*. 2026. Available:
+<https://mirai.r-lib.org></span>
+
+</div>
+
+<div id="ref-bench" class="csl-entry">
+
+<span class="csl-left-margin">\[3\]
+</span><span class="csl-right-inline">J. Hester and D. Vaughan, *Bench:
+High precision timing of r expressions*. 2025. Available:
+<https://bench.r-lib.org/></span>
+
+</div>
+
+<div id="ref-R" class="csl-entry">
+
+<span class="csl-left-margin">\[4\]
+</span><span class="csl-right-inline">R Core Team, *R: A language and
+environment for statistical computing*. Vienna, Austria: R Foundation
+for Statistical Computing, 2026. Available:
+<https://www.R-project.org/></span>
+
+</div>
 
 <div id="ref-advr" class="csl-entry">
 
-<span class="csl-left-margin">\[1\]
+<span class="csl-left-margin">\[5\]
 </span><span class="csl-right-inline">H. Wickham, *Advanced r*, 2nd ed.
 Chapman; Hall/CRC, 2019. doi:
 [10.1201/9781351201315](https://doi.org/10.1201/9781351201315).
