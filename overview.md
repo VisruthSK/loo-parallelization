@@ -1,9 +1,9 @@
-# Parallelization in loo (current state)
+# Parallelization in `loo` (current state)
 
 
 ## What is parallelization?
 
-<!-- TODO: what is parallelization, why we would want it, differences in multprocessing/multithreading, etc., how to do in R, how does mirai work -->
+<!-- TODO: what is parallelization, why we would want it, differences in multiprocessing/multithreading, etc., how to do in R, how does mirai work -->
 
 ### Serial `mirai` execution
 
@@ -27,31 +27,28 @@ S <- nrow(log_ratios)
 N <- ncol(log_ratios)
 tail_len <- loo:::n_pareto(r_eff = rep(1, N), S = S)
 
-x <- Map(
-  \(i) {
-    list(
-      log_ratios_i = log_ratios[, i],
-      tail_len_i = tail_len[i]
-    )
-  },
-  seq_len(N)
-)
+idx <- seq_len(N)
 
-work <- function(s) {
+work <- function(i) {
   loo:::do_psis_i(
-    log_ratios_i = s$log_ratios_i,
-    tail_len_i = s$tail_len_i
+    log_ratios_i = log_ratios[, i],
+    tail_len_i = tail_len[i]
   )$pareto_k
 }
 
 mirai::daemons(1)
 
 results <- bench::mark(
-  vapply = vapply(x, work, numeric(1)),
-  lapply = lapply(x, work),
-  mirai = mirai::mirai_map(x, work)[],
-  vapply_to_list = vapply(x, work, numeric(1)) |> as.list(),
-  purrr_map = purrr::map_dbl(x, work),
+  vapply = vapply(idx, work, numeric(1)),
+  lapply = lapply(idx, work),
+  mirai = mirai::mirai_map(
+    idx,
+    work,
+    log_ratios = log_ratios,
+    tail_len = tail_len
+  )[],
+  vapply_to_list = vapply(idx, work, numeric(1)) |> as.list(),
+  purrr_map = purrr::map_dbl(idx, work),
   check = same_numeric_values,
   iterations = 200
 )
@@ -69,11 +66,11 @@ results |> summary()
     # A tibble: 5 × 6
       expression          min   median `itr/sec` mem_alloc `gc/sec`
       <bch:expr>     <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-    1 vapply           9.39ms   10.4ms      93.1    3.37MB   15.8  
-    2 lapply           9.33ms     11ms      88.8    3.07MB   15.1  
-    3 mirai           20.77ms   23.3ms      41.9  736.67KB    0.639
-    4 vapply_to_list   9.29ms   11.1ms      88.6    3.07MB   15.0  
-    5 purrr_map        9.49ms   11.2ms      85.2    3.86MB   14.5  
+    1 vapply           9.47ms   11.4ms      87.2    3.76MB   16.0  
+    2 lapply           9.31ms   10.6ms      92.7    3.44MB   18.3  
+    3 mirai           22.65ms   26.2ms      37.3  736.67KB    0.568
+    4 vapply_to_list   9.39ms   10.7ms      91.3    3.44MB   18.7  
+    5 purrr_map        9.41ms   12.1ms      68.2     4.2MB   13.0  
 
 ``` r
 results |> summary(relative = TRUE)
@@ -82,29 +79,31 @@ results |> summary(relative = TRUE)
     # A tibble: 5 × 6
       expression       min median `itr/sec` mem_alloc `gc/sec`
       <bch:expr>     <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-    1 vapply          1.01   1         2.22      4.68     24.7
-    2 lapply          1.00   1.06      2.12      4.27     23.6
-    3 mirai           2.24   2.24      1         1         1  
-    4 vapply_to_list  1      1.06      2.11      4.27     23.5
-    5 purrr_map       1.02   1.08      2.03      5.37     22.6
+    1 vapply          1.02   1.08      2.34      5.23     28.1
+    2 lapply          1      1         2.48      4.78     32.2
+    3 mirai           2.43   2.47      1         1         1  
+    4 vapply_to_list  1.01   1.01      2.45      4.78     32.9
+    5 purrr_map       1.01   1.14      1.83      5.84     22.9
 
 NB: the `mem_alloc` column should not be interpreted as total memory
 usage for `mirai`: `bench::mark()` records R heap allocations via
 `utils::Rprofmem()`, which is not able to track daemons’ memory usage
 \[2\], \[3\], \[4\].
 
-`mirai_map()` with a single daemon has a median runtime of 23.3ms,
-roughly 2.2x slower than the fastest in-process approach. Of course, in
-absolute terms the difference is negligible, adding only about 10ms. The
+`mirai_map()` with a single daemon has a median runtime of ~26ms,
+roughly 2.5x slower than the fastest in-process approach. Of course, in
+absolute terms the difference is negligible, adding only about 15ms. The
 memory usage of all in-process approaches are relatively close to one
 another. `vapply()`’s small memory overhead may probably be attributed
 to the extra work it does validating types and lengths and such \[4\].
 
 In short, it is probably a good idea to directly test the effects of
-using `mirai` execution in `loo`, but it is likely that we will find
+serial `mirai` execution in `loo`, but it is likely that we will find
 that we should keep the unique single core execution path.
 
 ## Where is parallelization currently in use?
+
+<!-- TODO -->
 
 - `function()`
   - short description
@@ -123,6 +122,8 @@ To investigate this question we use two approaches:
 
 ### Analytic search
 
+<!-- TODO -->
+
 For each function/place in code where you think parallelization might
 help, do: \* Introduction \* short description of function \* why do you
 think that parallelization can improve things? \* Experiment: \*
@@ -131,6 +132,8 @@ using) for parallel and unparallel version \* report results (how much
 speed up we can get?) \* Short conclusion
 
 ### Performance testing
+
+<!-- TODO -->
 
 - short description of approach for running performance test
 - run performance test
@@ -210,13 +213,14 @@ number of parallel tasks could be as large as $n * m$. Oversubscription
 is bad because, in this context, we are mostly running CPU heavy tasks
 where each process takes time and needs its own core. Oversubscription
 is promising more parallelization than what the hardware can
-provide–note that parallelization usually has some [fixed startup costs
-as well](../experiments/mirai_overhead.md), so we would probably lose
-performance. In `loo` specifically, we must be careful when
-parallelizing functions to ensure we do not accidentally have nested
-parallelization.
+provide–note that parallelization usually has some fixed startup costs
+as well (see
+<a href="#sec-mirai-overhead" class="quarto-xref">Section 1.1</a>), so
+we would probably lose performance. In `loo` specifically, we must be
+careful when parallelizing functions to ensure we do not accidentally
+have nested parallelization.
 
-<!-- TODO: update codes -->
+<!-- TODO: update footnote numbers -->
 
 ### Where do we currently find nested parallelization in `loo`?
 
@@ -255,7 +259,7 @@ sessioninfo::session_info(
 
     Warning in system2("quarto", "-V", stdout = TRUE, env = paste0("TMPDIR=", :
     running command '"quarto"
-    TMPDIR=C:/Users/visru/AppData/Local/Temp/RtmpiqNbnI/file4cc57eb5023 -V' had
+    TMPDIR=C:/Users/visru/AppData/Local/Temp/RtmpaI9dsd/file3398f5662ee -V' had
     status 1
 
     ─ Session info ───────────────────────────────────────────────────────────────
@@ -284,13 +288,53 @@ sessioninfo::session_info(
 
     ──────────────────────────────────────────────────────────────────────────────
 
+## Memory
+
+<!-- TODO: brief intro, maybe consolidate all memory discussion-->
+
+### Memory usage and `loo`
+
+As briefly discussed in [Nested
+Parallelization](nested_parallelization.md), parallelization may lead to
+running out of memory (OOM). Copying the construction from that note: if
+you have, say, 8GB memory but spin up 16 tasks which each use 1GB, you
+will run out of memory. The math here is quite clear, though it is worst
+case and is complicated by the profile of the program–if that 1GB is
+peak usage and it normally doesn’t go so high, and the peaks don’t
+overlap, then it is possible for you to squeeze past without 16 gigs
+free. Note, however, that this 1GB usage per parallel worker is assuming
+that there is no memory that can be shared. If objects are reused across
+workers, we could using something like `mori` \[6\] in R to reduce the
+physical memory usage by mapping some objects in workers to the same
+shared address spaces, thus eliding copies–unless, of course, a worker
+modifies the object. This can be loosely seen as mildly clawing back
+some of the benefits of forking with respect to memory. Note however,
+that `mori` works on a limited set of R objects, specifically “atomic
+vector types, lists, and data frames” \[6\]. See
+<a href="#sec-mori-model-methods" class="quarto-xref">Section 7.2</a>
+for empirical proof that we cannot naively use `mori` to share compiled
+model methods across workers.
+
+Since OOM is a slightly tricky thing to think about, one user friendly
+feature we would like to implement, somewhat orthogonal to swapping to
+`mirai`, is having parallel functions check how much memory they need
+and warn users if a run might run out of memory. We could do this pretty
+simply by running our functions across varying input sizes and modelling
+peak memory usage (probably averaged over a few runs) as a function of
+the parameters. Of course, if we implement this we would need to test it
+to see how accurate and conservative our model is.
+
+### `mori` and model methods
+
+<!-- TODO -->
+
 <div id="refs" class="references csl-bib-body" entry-spacing="0">
 
 <div id="ref-loo" class="csl-entry">
 
 <span class="csl-left-margin">\[1\]
 </span><span class="csl-right-inline">A. Vehtari *et al.*, “Loo:
-Efficient leave-one-out cross-validation and WAIC for bayesian models.”
+Efficient leave-one-out cross-validation and WAIC for bayesianmodels.”
 2025. Available: <https://mc-stan.org/loo/></span>
 
 </div>
@@ -333,11 +377,22 @@ Available: <https://adv-r.hadley.nz/></span>
 
 </div>
 
+<div id="ref-moripost" class="csl-entry">
+
+<span class="csl-left-margin">\[6\]
+</span><span class="csl-right-inline">C. Gao, “Mori: Shared memory for r
+objects,” Apr. 23, 2026. Available:
+<https://opensource.posit.co/blog/2026-04-23_mori-0-1-0/>. \[Accessed:
+May 26, 2026\]</span>
+
+</div>
+
 </div>
 
 [^1]: This is a common heuristic for number of
     threads/daemons/workers/etc. to use because it leaves 1 core free to
     do normal computer things, lest the system become unresponsive. Note
     this doesn’t account for memory usage at all–if you have 8n memory
-    but send out n tasks which each use “1” memory, you will run out of
-    memory. See [the note on memory](memory.md).
+    but send out n tasks which each use “2” memory, you will probably
+    run out of memory (see
+    <a href="#sec-memory" class="quarto-xref">Section 7</a>).

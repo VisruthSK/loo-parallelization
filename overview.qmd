@@ -1,12 +1,15 @@
 ---
-title: Parallelization in loo (current state)
+title: Parallelization in `loo` (current state)
+format: 
+    gfm: default
+    pdf: default
 ---
 
 ## What is parallelization?
 
-<!-- TODO: what is parallelization, why we would want it, differences in multprocessing/multithreading, etc., how to do in R, how does mirai work -->
+<!-- TODO: what is parallelization, why we would want it, differences in multiprocessing/multithreading, etc., how to do in R, how does mirai work -->
 
-### Serial `mirai` execution
+### Serial `mirai` execution {#sec-mirai-overhead}
 
 Currently, parallelization in loo goes through [three paths](https://github.com/stan-dev/loo/blob/05a6bd20af83c919ba7a5572e3e0a50426c17a77/R/importance_sampling.R#L206) @loo:
 
@@ -37,31 +40,28 @@ S <- nrow(log_ratios)
 N <- ncol(log_ratios)
 tail_len <- loo:::n_pareto(r_eff = rep(1, N), S = S)
 
-x <- Map(
-  \(i) {
-    list(
-      log_ratios_i = log_ratios[, i],
-      tail_len_i = tail_len[i]
-    )
-  },
-  seq_len(N)
-)
+idx <- seq_len(N)
 
-work <- function(s) {
+work <- function(i) {
   loo:::do_psis_i(
-    log_ratios_i = s$log_ratios_i,
-    tail_len_i = s$tail_len_i
+    log_ratios_i = log_ratios[, i],
+    tail_len_i = tail_len[i]
   )$pareto_k
 }
 
 mirai::daemons(1)
 
 results <- bench::mark(
-  vapply = vapply(x, work, numeric(1)),
-  lapply = lapply(x, work),
-  mirai = mirai::mirai_map(x, work)[],
-  vapply_to_list = vapply(x, work, numeric(1)) |> as.list(),
-  purrr_map = purrr::map_dbl(x, work),
+  vapply = vapply(idx, work, numeric(1)),
+  lapply = lapply(idx, work),
+  mirai = mirai::mirai_map(
+    idx,
+    work,
+    log_ratios = log_ratios,
+    tail_len = tail_len
+  )[],
+  vapply_to_list = vapply(idx, work, numeric(1)) |> as.list(),
+  purrr_map = purrr::map_dbl(idx, work),
   check = same_numeric_values,
   iterations = 200
 )
@@ -77,11 +77,13 @@ results |> summary(relative = TRUE)
 
 NB: the `mem_alloc` column should not be interpreted as total memory usage for `mirai`: `bench::mark()` records R heap allocations via `utils::Rprofmem()`, which is not able to track daemons' memory usage [@bench; @R; @mirai].
 
-`mirai_map()` with a single daemon has a median runtime of 23.3ms, roughly 2.2x slower than the fastest in-process approach. Of course, in absolute terms the difference is negligible, adding only about 10ms. The memory usage of all in-process approaches are relatively close to one another. `vapply()`'s small memory overhead may probably be attributed to the extra work it does validating types and lengths and such @R.
+`mirai_map()` with a single daemon has a median runtime of ~26ms, roughly 2.5x slower than the fastest in-process approach. Of course, in absolute terms the difference is negligible, adding only about 15ms. The memory usage of all in-process approaches are relatively close to one another. `vapply()`'s small memory overhead may probably be attributed to the extra work it does validating types and lengths and such @R.
 
-In short, it is probably a good idea to directly test the effects of using `mirai` execution in `loo`, but it is likely that we will find that we should keep the unique single core execution path.
+In short, it is probably a good idea to directly test the effects of serial `mirai` execution in `loo`, but it is likely that we will find that we should keep the unique single core execution path.
 
 ## Where is parallelization currently in use?
+
+<!-- TODO -->
 
 * `function()`
     * short description
@@ -97,6 +99,7 @@ To investigate this question we use two approaches:
 
 ### Analytic search
 
+<!-- TODO -->
 For each function/place in code where you think parallelization might help, do:
 * Introduction
     * short description of function
@@ -108,6 +111,8 @@ For each function/place in code where you think parallelization might help, do:
 *  Short conclusion
 
 ### Performance testing
+
+<!-- TODO -->
 
 * short description of approach for running performance test
 * run performance test
@@ -145,10 +150,10 @@ mirai_map(
 )
 ```
 
-We first are doing something parallely over values of `xs`, but then we try to work in parallel again for each value from `xs`! The main problem here is oversubscription: we spawn `n` outer workers, let say, then for each we spawn another `m` inner workers. In the package context though, this implementation would be far more complex, and would probably be hidden completely from users. This becomes a problem when a user sets `n`, the outer parallel workers, to # cores - 1[^1], as the actual number of parallel tasks could be as large as $n * m$. Oversubscription is bad because, in this context, we are mostly running CPU heavy tasks where each process takes time and needs its own core. Oversubscription is promising more parallelization than what the hardware can provide--note that parallelization usually has some [fixed startup costs as well](../experiments/mirai_overhead.md), so we would probably lose performance. In `loo` specifically, we must be careful when parallelizing functions to ensure we do not accidentally have nested parallelization. 
+We first are doing something parallely over values of `xs`, but then we try to work in parallel again for each value from `xs`! The main problem here is oversubscription: we spawn `n` outer workers, let say, then for each we spawn another `m` inner workers. In the package context though, this implementation would be far more complex, and would probably be hidden completely from users. This becomes a problem when a user sets `n`, the outer parallel workers, to # cores - 1[^1], as the actual number of parallel tasks could be as large as $n * m$. Oversubscription is bad because, in this context, we are mostly running CPU heavy tasks where each process takes time and needs its own core. Oversubscription is promising more parallelization than what the hardware can provide--note that parallelization usually has some fixed startup costs as well (see @sec-mirai-overhead), so we would probably lose performance. In `loo` specifically, we must be careful when parallelizing functions to ensure we do not accidentally have nested parallelization. 
 
-<!-- TODO: update codes -->
-[^1]: This is a common heuristic for number of threads/daemons/workers/etc. to use because it leaves 1 core free to do normal computer things, lest the system become unresponsive. Note this doesn't account for memory usage at all--if you have 8n memory but send out n tasks which each use "1" memory, you will run out of memory. See [the note on memory](memory.md).
+<!-- TODO: update footnote numbers -->
+[^1]: This is a common heuristic for number of threads/daemons/workers/etc. to use because it leaves 1 core free to do normal computer things, lest the system become unresponsive. Note this doesn't account for memory usage at all--if you have 8n memory but send out n tasks which each use "2" memory, you will probably run out of memory (see @sec-memory).
 
 ### Where do we currently find nested parallelization in `loo`?
 <!-- TODO -->
@@ -177,3 +182,17 @@ sessioninfo::session_info(
   dependencies = FALSE
 )
 ```
+
+## Memory {#sec-memory}
+
+<!-- TODO: brief intro, maybe consolidate all memory discussion-->
+
+### Memory usage and `loo`
+
+As briefly discussed in [Nested Parallelization](nested_parallelization.md), parallelization may lead to running out of memory (OOM). Copying the construction from that note: if you have, say, 8GB memory but spin up 16 tasks which each use 1GB, you will run out of memory. The math here is quite clear, though it is worst case and is complicated by the profile of the program--if that 1GB is peak usage and it normally doesn't go so high, and the peaks don't overlap, then it is possible for you to squeeze past without 16 gigs free. Note, however, that this 1GB usage per parallel worker is assuming that there is no memory that can be shared. If objects are reused across workers, we could using something like `mori` @moripost in R to reduce the physical memory usage by mapping some objects in workers to the same shared address spaces, thus eliding copies--unless, of course, a worker modifies the object. This can be loosely seen as mildly clawing back some of the benefits of forking with respect to memory. Note however, that `mori` works on a limited set of R objects, specifically "atomic vector types, lists, and data frames" @moripost. See @sec-mori-model-methods for empirical proof that we cannot naively use `mori` to share compiled model methods across workers. 
+
+Since OOM is a slightly tricky thing to think about, one user friendly feature we would like to implement, somewhat orthogonal to swapping to `mirai`, is having parallel functions check how much memory they need and warn users if a run might run out of memory. We could do this pretty simply by running our functions across varying input sizes and modelling peak memory usage (probably averaged over a few runs) as a function of the parameters. Of course, if we implement this we would need to test it to see how accurate and conservative our model is.
+
+### `mori` and model methods {#sec-mori-model-methods}
+
+<!-- TODO -->

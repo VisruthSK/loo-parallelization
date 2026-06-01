@@ -1,0 +1,15 @@
+---
+title: Notes on Reference
+nocite: "@*"
+---
+
+<!-- TODO: summaries -->
+
+https://cran.r-project.org/web/views/HighPerformanceComputing.html
+
+https://wlandau.github.io/crew/
+
+## References
+
+::: {#refs}
+:::
