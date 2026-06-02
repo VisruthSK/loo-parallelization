@@ -3,11 +3,16 @@
 
 ## What is parallelization?
 
-<!-- TODO: what is parallelization, why we would want it, differences in multiprocessing/multithreading, etc., how to do in R, how does mirai work -->
+<!-- TODO -->
+
+What is parallelization, why we would want it, differences between
+multiprocessing/multithreading, etc., broad overview of how to
+parallelize in R. Also at some point define terminology and ensure all
+of doc uses it.
 
 ### `mirai`
 
-The parallelization package we are using is \[1\], self-described as a
+The parallelization package we are using is \[1\], self described as a
 “Minimalist Async Evaluation Framework for R”. Before we briefly
 describe how `mirai` works at a high level, it is useful to mention some
 of its benefits which led us to select it as our parallel backend.
@@ -33,6 +38,15 @@ packages like `shiny` (\[1\], see [the
 vignette](https://mirai.r-lib.org/articles/shiny.html)), and in `tune`,
 which is a vital part of the `tidymodels` workflow (\[4\], see [the
 vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
+
+<!-- TODO: more on mirai internals, NNG and all that -->
+
+#### Serialization
+
+<!-- TODO -->
+
+What it is, how its used, how it is related to `mori`, why we can’t use
+for model methods. Experiment proving we can’t use for model methods.
 
 #### RNG
 
@@ -77,8 +91,8 @@ mirai::daemons(0)
 Note that base R’s `set.seed()` has no effect on `mirai` \[1\]. Further,
 note that by default if `daemons()` is called without any arguments, the
 RNG streams aren’t reproducible (just like results in serial execution
-without setting a seed). I.e., running `rexp()` again will get different
-results:
+without setting a seed). We can see that running `rexp()` again will get
+different results:
 
 ``` r
 mirai::daemons(4)
@@ -151,50 +165,11 @@ In essence, reproducibility is the users’ responsibility, akin to
 compute setups. This further stresses the fact that documentation is a
 major part of this project.
 
-### Memory
-
-<!-- TODO: brief intro, maybe consolidate all memory discussion-->
-
-#### Memory usage and `loo`
-
-Parallelization may lead to running out of memory (OOM). Copying the
-construction from that note: if you have, say, 8GB memory but spin up 16
-tasks which each use 1GB, you will run out of memory. The math here is
-quite clear, though it is worst case and is complicated by the profile
-of the program–if that 1GB is peak usage and it normally doesn’t go so
-high, and the peaks don’t overlap, then it is possible for you to
-squeeze past without 16 gigs free. Note, however, that this 1GB usage
-per parallel worker is assuming that there is no memory that can be
-shared. If objects are reused across workers, we could using something
-like `mori` \[6\] in R to reduce the physical memory usage by mapping
-some objects in workers to the same shared address spaces, thus eliding
-copies–unless, of course, a worker modifies the object. This can be
-loosely seen as mildly clawing back some of the benefits of forking with
-respect to memory. Note however, that `mori` works on a limited set of R
-objects, specifically “atomic vector types, lists, and data frames”
-\[6\]. See
-<a href="#sec-mori-model-methods" class="quarto-xref">Section 1.2.2</a>
-for empirical proof that we cannot naively use `mori` to share compiled
-model methods across workers.
-
-Since OOM is a slightly tricky thing to think about, one user friendly
-feature we would like to implement, somewhat orthogonal to swapping to
-`mirai`, is having parallel functions check how much memory they need
-and warn users if a run might run out of memory. We could do this pretty
-simply by running our functions across varying input sizes and modelling
-peak memory usage (probably averaged over a few runs) as a function of
-the parameters. Of course, if we implement this we would need to test it
-to see how accurate and conservative our model is.
-
-#### `mori` and model methods
-
-<!-- TODO -->
-
-### Serial `mirai` execution
+#### Serial `mirai` execution
 
 Currently, parallelization in loo goes through [three
 paths](https://github.com/stan-dev/loo/blob/05a6bd20af83c919ba7a5572e3e0a50426c17a77/R/importance_sampling.R#L206)
-\[7\]:
+\[6\]:
 
 1.  Serial execution using `lapply()`
 2.  Forking through `parallel::mclapply()`
@@ -273,18 +248,57 @@ results |> summary(relative = TRUE)
 NB: the `mem_alloc` column should not be interpreted as total memory
 usage for `mirai`: `bench::mark()` records R heap allocations via
 `utils::Rprofmem()`, which is not able to track daemons’ memory usage
-\[1\], \[8\], \[9\].
+\[1\], \[7\], \[8\].
 
 `mirai_map()` with a single daemon has a median runtime of ~26ms,
 roughly 2.5x slower than the fastest in-process approach. Of course, in
 absolute terms the difference is negligible, adding only about 15ms. The
 memory usage of all in-process approaches are relatively close to one
 another. `vapply()`’s small memory overhead may probably be attributed
-to the extra work it does validating types and lengths and such \[9\].
+to the extra work it does validating types and lengths and such \[8\].
 
 In short, it is probably a good idea to directly test the effects of
 serial `mirai` execution in `loo`, but it is likely that we will find
 that we should keep the unique single core execution path.
+
+<!-- TODO: maybe move to appendix? -->
+
+## Memory
+
+### Memory usage and `loo`
+
+Parallelization may lead to running out of memory (OOM). Copying the
+construction from that note: if you have, say, 8GB memory but spin up 16
+tasks which each use 1GB, you will run out of memory. The math here is
+quite clear, though it is worst case and is complicated by the profile
+of the program–if that 1GB is peak usage and it normally doesn’t go so
+high, and the peaks don’t overlap, then it is possible for you to
+squeeze past without 16 gigs free. Note, however, that this 1GB usage
+per parallel worker is assuming that there is no memory that can be
+shared. If objects are reused across workers, we could using something
+like `mori` \[9\] in R to reduce the physical memory usage by mapping
+some objects in workers to the same shared address spaces, thus eliding
+copies–unless, of course, a worker modifies the object \[10\]. This can
+be loosely seen as mildly clawing back some of the benefits of forking
+with respect to memory. Note however, that `mori` works on a limited set
+of R objects, specifically “atomic vector types, lists, and data frames”
+\[9\]. See
+<a href="#sec-mori-model-methods" class="quarto-xref">Section 2.2</a>
+for empirical proof that we cannot naively use `mori` to share compiled
+model methods across workers.
+
+Since OOM is a slightly tricky thing to think about, one user friendly
+feature we would like to implement, somewhat orthogonal to swapping to
+`mirai`, is having parallel functions check how much memory they need
+and warn users if a run might run out of memory. We could do this pretty
+simply by running our functions across varying input sizes and modelling
+peak memory usage (probably averaged over a few runs) as a function of
+the parameters. Of course, if we implement this we would need to test it
+to see how accurate and conservative our model is.
+
+### `mori` and model methods
+
+<!-- TODO -->
 
 ## Where is parallelization currently in use?
 
@@ -342,7 +356,7 @@ More careful thought must go into determining if parallelization is even
 worth it, and more careful scrutiny of the callsites of
 `elpd_loo_approximation()` to ensure it doesn’t accidentally induce
 nested parallelization (see
-<a href="#sec-nested-parallelization" class="quarto-xref">Section 5</a>)–though
+<a href="#sec-nested-parallelization" class="quarto-xref">Section 6</a>)–though
 at first blush this seems unlikely.
 
 In
@@ -382,11 +396,11 @@ obviously needs to be fixed, and this function tested.
 
 When browsing the codebase to find places where parallelization could be
 helpful (see
-<a href="#sec-parallelization-benefit" class="quarto-xref">Section 3</a>),
+<a href="#sec-parallelization-benefit" class="quarto-xref">Section 4</a>),
 we found two potential speedups–in these places, we may be able to
 benefit from *vectorizing* functions instead of parallelizing a loop.
 Vectorization is advantageous in these spots as we would be rewriting R
-loops as optimized matrix operations \[10, Secs. 24.5–24.7\].
+loops as optimized matrix operations \[11, Secs. 24.5–24.7\].
 
 > Matrix algebra is a general example of vectorisation. There loops are
 > executed by highly tuned external libraries like BLAS. If you can
@@ -407,13 +421,13 @@ Bayesian bootstrap iterations where it seems quite plausible to swap to
 matrix operations. This could potentially be a large speedup as the loop
 is large, being of length `BB_n`, which defaults to 1,000 replications.
 There don’t appear to be any reallocations in the loop, so the speedup
-will probably be dominated by the efficiency of matrix ops \[10, Secs.
+will probably be dominated by the efficiency of matrix ops \[11, Secs.
 5.3.1, 24.6\]. This is tracked in \#XXX. <!-- TODO: PR -->
 
 Similarly, though less interesting, is a gradient calculation in
 [`stacking_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L278),
 just above the previous function. `stacking_weights()` is similarly used
-for combining models using stacking, i.e., fitting a linear model to
+for combining models using stacking, that is, fitting a linear model to
 weigh the contending models. The gradient function is used for solving
 for those weights. However, the speedup here is less interesting because
 we are looping over `K`, the number of models being compared, which is
@@ -425,9 +439,9 @@ implement.
 
 ## Nested parallelization
 
-When updating `loo` we wish to avoid “nested parallelization”,
-i.e. attempting to compute something in parallel, when already in a
-parallel process. Take this nonfunctioning `mirai` code as an example:
+When updating `loo` we wish to avoid “nested parallelization”, that is,
+attempting to compute something in parallel, when already in a parallel
+process. Take this nonfunctioning `mirai` code as an example:
 
 ``` r
 # parallel over xs
@@ -451,7 +465,7 @@ where each process takes time and needs its own core. Oversubscription
 is promising more parallelization than what the hardware can
 provide–note that parallelization usually has some fixed startup costs
 as well (see
-<a href="#sec-mirai-overhead" class="quarto-xref">Section 1.3</a>), so
+<a href="#sec-mirai-overhead" class="quarto-xref">Section 1.1.3</a>), so
 we would probably lose performance. In `loo` specifically, we must be
 careful when parallelizing functions to ensure we do not accidentally
 have nested parallelization.
@@ -496,7 +510,7 @@ and memory usage.
 ------------------------------------------------------------------------
 
 `b3` aims to measure language-agnostic end-to-end branch-vs-baseline
-performance diffs. `b3`’s philosophy is akin to touchstone \[11\], but
+performance diffs. `b3`’s philosophy is akin to touchstone \[12\], but
 shucks the R focus–`b3` handles orchestration, measurement, and
 reporting, while users must provide their project runtime, dependency
 setup, and benchmark command. `b3` compares complete repository states:
@@ -678,19 +692,9 @@ tools*. 2026. Available: <https://tune.tidymodels.org/></span>
 
 </div>
 
-<div id="ref-moripost" class="csl-entry">
-
-<span class="csl-left-margin">\[6\]
-</span><span class="csl-right-inline">C. Gao, “Mori: Shared memory for r
-objects,” Apr. 23, 2026. Available:
-<https://opensource.posit.co/blog/2026-04-23_mori-0-1-0/>. \[Accessed:
-May 26, 2026\]</span>
-
-</div>
-
 <div id="ref-loo" class="csl-entry">
 
-<span class="csl-left-margin">\[7\]
+<span class="csl-left-margin">\[6\]
 </span><span class="csl-right-inline">A. Vehtari *et al.*, “Loo:
 Efficient leave-one-out cross-validation and WAIC for bayesianmodels.”
 2025. Available: <https://mc-stan.org/loo/></span>
@@ -699,7 +703,7 @@ Efficient leave-one-out cross-validation and WAIC for bayesianmodels.”
 
 <div id="ref-bench" class="csl-entry">
 
-<span class="csl-left-margin">\[8\]
+<span class="csl-left-margin">\[7\]
 </span><span class="csl-right-inline">J. Hester and D. Vaughan, *Bench:
 High precision timing of r expressions*. 2025. Available:
 <https://bench.r-lib.org/></span>
@@ -708,7 +712,7 @@ High precision timing of r expressions*. 2025. Available:
 
 <div id="ref-R" class="csl-entry">
 
-<span class="csl-left-margin">\[9\]
+<span class="csl-left-margin">\[8\]
 </span><span class="csl-right-inline">R Core Team, *R: A language and
 environment for statistical computing*. Vienna, Austria: R Foundation
 for Statistical Computing, 2026. Available:
@@ -716,9 +720,27 @@ for Statistical Computing, 2026. Available:
 
 </div>
 
-<div id="ref-advr" class="csl-entry">
+<div id="ref-moripost" class="csl-entry">
+
+<span class="csl-left-margin">\[9\]
+</span><span class="csl-right-inline">C. Gao, “Mori: Shared memory for r
+objects,” Apr. 23, 2026. Available:
+<https://opensource.posit.co/blog/2026-04-23_mori-0-1-0/>. \[Accessed:
+May 26, 2026\]</span>
+
+</div>
+
+<div id="ref-mori" class="csl-entry">
 
 <span class="csl-left-margin">\[10\]
+</span><span class="csl-right-inline">C. Gao, *Mori: Shared memory for r
+objects*. 2026. Available: <https://shikokuchuo.net/mori/></span>
+
+</div>
+
+<div id="ref-advr" class="csl-entry">
+
+<span class="csl-left-margin">\[11\]
 </span><span class="csl-right-inline">H. Wickham, *Advanced r*, 2nd ed.
 Chapman; Hall/CRC, 2019. doi:
 [10.1201/9781351201315](https://doi.org/10.1201/9781351201315).
@@ -728,7 +750,7 @@ Available: <https://adv-r.hadley.nz/></span>
 
 <div id="ref-touchstone" class="csl-entry">
 
-<span class="csl-left-margin">\[11\]
+<span class="csl-left-margin">\[12\]
 </span><span class="csl-right-inline">L. Walthert and J. Wujciak-Jens,
 *Touchstone: Continuous benchmarking with statistical confidence based
 on ’git’ branches*. 2026. Available:
@@ -741,7 +763,6 @@ on ’git’ branches*. 2026. Available:
 [^1]: This is a common heuristic for number of
     threads/daemons/workers/etc. to use because it leaves 1 core free to
     do normal computer things, lest the system become unresponsive. Note
-    this doesn’t account for memory usage at all–if you have 8n memory
-    but send out n tasks which each use “2” memory, you will probably
-    run out of memory (see
-    <a href="#sec-memory" class="quarto-xref">Section 1.2</a>).
+    this doesn’t account for memory usage at all–if you have 8GB memory
+    but send out n tasks, each using 2GB, you may run out of memory (see
+    <a href="#sec-memory" class="quarto-xref">Section 2</a>).

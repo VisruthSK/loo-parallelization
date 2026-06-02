@@ -7,15 +7,25 @@ format:
 
 ## What is parallelization?
 
-<!-- TODO: what is parallelization, why we would want it, differences in multiprocessing/multithreading, etc., how to do in R, how does mirai work -->
+<!-- TODO -->
+
+What is parallelization, why we would want it, differences between multiprocessing/multithreading, etc., broad overview of how to parallelize in R. Also at some point define terminology and ensure all of doc uses it.
 
 ### `mirai`
 
-The parallelization package we are using is @mirai, self-described as a "Minimalist Async Evaluation Framework for R". Before we briefly describe how `mirai` works at a high level, it is useful to mention some of its benefits which led us to select it as our parallel backend.
+The parallelization package we are using is @mirai, self described as a "Minimalist Async Evaluation Framework for R". Before we briefly describe how `mirai` works at a high level, it is useful to mention some of its benefits which led us to select it as our parallel backend.
 
 `mirai` very naturally allows for heterogenous compute through a clean API. What this means in practice is that, once we migrate to `mirai`, users will be able to run `loo` code in parallel on their laptop, on remote computers, on a HPC system, or any zany mixture (@mirai, specifically see [sec. 6](https://mirai.r-lib.org/articles/v01-reference.html#remote-infrastructure) in the Reference Manual). Decoupling the execution profile from `loo` code, especially using the API `mirai` exposes, allows for users to more easily exploit their available computational resources without much hassle.
 
 `mirai` is also [widely used](https://mirai.r-lib.org/index.html#across-the-r-stack) across major R packages--for example, recently landing in `purrr` [@purrr-1.1.0; @purrr] ([`in_parallel()`](https://purrr.tidyverse.org/reference/in_parallel.html#references)). `mirai` is also "the first official alternative communications backend for base R’s `parallel` package." @mirai, and is used in other major packages like `shiny` (@mirai, see [the vignette](https://mirai.r-lib.org/articles/shiny.html)), and in `tune`, which is a vital part of the `tidymodels` workflow (@tune, see [the vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
+
+<!-- TODO: more on mirai internals, NNG and all that -->
+
+#### Serialization
+
+<!-- TODO -->
+
+What it is, how its used, how it is related to `mori`, why we can't use for model methods. Experiment proving we can't use for model methods.
 
 #### RNG
 
@@ -28,7 +38,7 @@ mirai::mirai_map(1:4, rexp)[]
 mirai::daemons(0)
 ```
 
-Note that base R's `set.seed()` has no effect on `mirai` @mirai. Further, note that by default if `daemons()` is called without any arguments, the RNG streams aren't reproducible (just like results in serial execution without setting a seed). I.e., running `rexp()` again will get different results:
+Note that base R's `set.seed()` has no effect on `mirai` @mirai. Further, note that by default if `daemons()` is called without any arguments, the RNG streams aren't reproducible (just like results in serial execution without setting a seed). We can see that running `rexp()` again will get different results:
 
 ```{r}
 mirai::daemons(4)
@@ -50,21 +60,7 @@ mirai::daemons(0)
 
 In essence, reproducibility is the users' responsibility, akin to compute setups. This further stresses the fact that documentation is a major part of this project.
 
-### Memory {#sec-memory}
-
-<!-- TODO: brief intro, maybe consolidate all memory discussion-->
-
-#### Memory usage and `loo`
-
-Parallelization may lead to running out of memory (OOM). Copying the construction from that note: if you have, say, 8GB memory but spin up 16 tasks which each use 1GB, you will run out of memory. The math here is quite clear, though it is worst case and is complicated by the profile of the program--if that 1GB is peak usage and it normally doesn't go so high, and the peaks don't overlap, then it is possible for you to squeeze past without 16 gigs free. Note, however, that this 1GB usage per parallel worker is assuming that there is no memory that can be shared. If objects are reused across workers, we could using something like `mori` @moripost in R to reduce the physical memory usage by mapping some objects in workers to the same shared address spaces, thus eliding copies--unless, of course, a worker modifies the object. This can be loosely seen as mildly clawing back some of the benefits of forking with respect to memory. Note however, that `mori` works on a limited set of R objects, specifically "atomic vector types, lists, and data frames" @moripost. See @sec-mori-model-methods for empirical proof that we cannot naively use `mori` to share compiled model methods across workers. 
-
-Since OOM is a slightly tricky thing to think about, one user friendly feature we would like to implement, somewhat orthogonal to swapping to `mirai`, is having parallel functions check how much memory they need and warn users if a run might run out of memory. We could do this pretty simply by running our functions across varying input sizes and modelling peak memory usage (probably averaged over a few runs) as a function of the parameters. Of course, if we implement this we would need to test it to see how accurate and conservative our model is.
-
-#### `mori` and model methods {#sec-mori-model-methods}
-
-<!-- TODO -->
-
-### Serial `mirai` execution {#sec-mirai-overhead}
+#### Serial `mirai` execution {#sec-mirai-overhead}
 
 Currently, parallelization in loo goes through [three paths](https://github.com/stan-dev/loo/blob/05a6bd20af83c919ba7a5572e3e0a50426c17a77/R/importance_sampling.R#L206) @loo:
 
@@ -136,6 +132,20 @@ NB: the `mem_alloc` column should not be interpreted as total memory usage for `
 
 In short, it is probably a good idea to directly test the effects of serial `mirai` execution in `loo`, but it is likely that we will find that we should keep the unique single core execution path.
 
+<!-- TODO: maybe move to appendix? -->
+
+## Memory {#sec-memory}
+
+### Memory usage and `loo`
+
+Parallelization may lead to running out of memory (OOM). Copying the construction from that note: if you have, say, 8GB memory but spin up 16 tasks which each use 1GB, you will run out of memory. The math here is quite clear, though it is worst case and is complicated by the profile of the program--if that 1GB is peak usage and it normally doesn't go so high, and the peaks don't overlap, then it is possible for you to squeeze past without 16 gigs free. Note, however, that this 1GB usage per parallel worker is assuming that there is no memory that can be shared. If objects are reused across workers, we could using something like `mori` @moripost in R to reduce the physical memory usage by mapping some objects in workers to the same shared address spaces, thus eliding copies--unless, of course, a worker modifies the object @mori. This can be loosely seen as mildly clawing back some of the benefits of forking with respect to memory. Note however, that `mori` works on a limited set of R objects, specifically "atomic vector types, lists, and data frames" @moripost. See @sec-mori-model-methods for empirical proof that we cannot naively use `mori` to share compiled model methods across workers.
+
+Since OOM is a slightly tricky thing to think about, one user friendly feature we would like to implement, somewhat orthogonal to swapping to `mirai`, is having parallel functions check how much memory they need and warn users if a run might run out of memory. We could do this pretty simply by running our functions across varying input sizes and modelling peak memory usage (probably averaged over a few runs) as a function of the parameters. Of course, if we implement this we would need to test it to see how accurate and conservative our model is.
+
+### `mori` and model methods {#sec-mori-model-methods}
+
+<!-- TODO -->
+
 ## Where is parallelization currently in use?
 
 <!-- TODO -->
@@ -196,14 +206,14 @@ Of course, for these potential improvements, we should first write tests for cor
 The more important of the two is in [`pseudobma_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L334), when performing a Bayesian bootstrap. This function is the backend for `loo_model_weights()`, and is used to average models using psuedo-Bayesian model averaging, optionally using a Bayesian bootstrap (which is referred to as psudo-BMA+). This pseudo-BMA+ path is the one we care about as it has the elidable loop. We currently loop over Bayesian bootstrap iterations where it seems quite plausible to swap to matrix operations. This could potentially be a large speedup as the loop is large, being of length `BB_n`, which defaults to 1,000 replications. There don't appear to be any reallocations in the loop, so the speedup will probably be dominated by the efficiency of matrix ops [@advr, secs. 5.3.1, 24.6]. This is tracked in #XXX.
 <!-- TODO: PR -->
 
-Similarly, though less interesting, is a gradient calculation in [`stacking_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L278), just above the previous function. `stacking_weights()` is similarly used for combining models using stacking, i.e., fitting a linear model to weigh the contending models. The gradient function is used for solving for those weights. However, the speedup here is less interesting because we are looping over `K`, the number of models being compared, which is usually small. However, we may as well take the (potential) free performance. This is tracked in #XXX.
+Similarly, though less interesting, is a gradient calculation in [`stacking_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L278), just above the previous function. `stacking_weights()` is similarly used for combining models using stacking, that is, fitting a linear model to weigh the contending models. The gradient function is used for solving for those weights. However, the speedup here is less interesting because we are looping over `K`, the number of models being compared, which is usually small. However, we may as well take the (potential) free performance. This is tracked in #XXX.
 <!-- TODO: PR -->
 
 These two loops seem like low hanging fruit and well worth the time to implement.
 
 ## Nested parallelization {#sec-nested-parallelization}
 
-When updating `loo` we wish to avoid "nested parallelization", i.e. attempting to compute something in parallel, when already in a parallel process. Take this nonfunctioning `mirai` code as an example:
+When updating `loo` we wish to avoid "nested parallelization", that is, attempting to compute something in parallel, when already in a parallel process. Take this nonfunctioning `mirai` code as an example:
 
 ```r
 # parallel over xs
@@ -217,7 +227,7 @@ mirai_map(
 We first are doing something parallely over values of `xs`, but then we try to work in parallel again for each value from `xs`! The main problem here is oversubscription: we spawn `n` outer workers, let say, then for each we spawn another `m` inner workers. In the package context though, this implementation would be far more complex, and would probably be hidden completely from users. This becomes a problem when a user sets `n`, the outer parallel workers, to # cores - 1[^1], as the actual number of parallel tasks could be as large as $n * m$. Oversubscription is bad because, in this context, we are mostly running CPU heavy tasks where each process takes time and needs its own core. Oversubscription is promising more parallelization than what the hardware can provide--note that parallelization usually has some fixed startup costs as well (see @sec-mirai-overhead), so we would probably lose performance. In `loo` specifically, we must be careful when parallelizing functions to ensure we do not accidentally have nested parallelization. 
 
 <!-- TODO: update footnote numbers -->
-[^1]: This is a common heuristic for number of threads/daemons/workers/etc. to use because it leaves 1 core free to do normal computer things, lest the system become unresponsive. Note this doesn't account for memory usage at all--if you have 8n memory but send out n tasks which each use "2" memory, you will probably run out of memory (see @sec-memory).
+[^1]: This is a common heuristic for number of threads/daemons/workers/etc. to use because it leaves 1 core free to do normal computer things, lest the system become unresponsive. Note this doesn't account for memory usage at all--if you have 8GB memory but send out n tasks, each using 2GB, you may run out of memory (see @sec-memory).
 
 ### Where do we currently find nested parallelization in `loo`?
 <!-- TODO -->

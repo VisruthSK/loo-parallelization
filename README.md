@@ -26,9 +26,19 @@ resources such as SLURM or SSH access to users, building off of the
 documentation in packages like `mirai`, but with a focus on applications
 to `loo`.
 
-<!-- ## Misc. Tasks -->
+## Main Tasks
 
-<!-- TODO -->
+Broadly then, our main tasks are:
+
+- Benchmark and test all changes
+- Swap the codebase to `mirai`
+- Parallelize heretofore serial code when possible
+- Write documentation (function level, vignettes, etc.) which clearly
+  showcase how to use the new parallel backend
+
+## Misc. Tasks
+
+- Warn users when too much memory may be used
 
 <div id="refs" class="references csl-bib-body" entry-spacing="0">
 
