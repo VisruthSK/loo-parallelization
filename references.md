@@ -49,9 +49,45 @@ May 26, 2026\]</span>
 
 </div>
 
-<div id="ref-advr" class="csl-entry">
+<div id="ref-mirai-2.5.0" class="csl-entry">
 
 <span class="csl-left-margin">\[5\]
+</span><span class="csl-right-inline">C. Gao, “Mirai 2.5.0,” Sept. 05,
+2025. Available:
+<https://tidyverse.org/blog/2025/09/mirai-2-5-0/></span>
+
+</div>
+
+<div id="ref-purrr" class="csl-entry">
+
+<span class="csl-left-margin">\[6\]
+</span><span class="csl-right-inline">H. Wickham and L. Henry, *Purrr:
+Functional programming tools*. 2026. Available:
+<https://purrr.tidyverse.org/></span>
+
+</div>
+
+<div id="ref-tune" class="csl-entry">
+
+<span class="csl-left-margin">\[7\]
+</span><span class="csl-right-inline">M. Kuhn, *Tune: Tidy tuning
+tools*. 2026. Available: <https://tune.tidymodels.org/></span>
+
+</div>
+
+<div id="ref-purrr-1.1.0" class="csl-entry">
+
+<span class="csl-left-margin">\[8\]
+</span><span class="csl-right-inline">D. V. Charlie Gao Hadley Wickham
+and L. Henry, “Parallel processing in purrr 1.1.0,” July 10, 2025.
+Available:
+<https://tidyverse.org/blog/2025/07/purrr-1-1-0-parallel/></span>
+
+</div>
+
+<div id="ref-advr" class="csl-entry">
+
+<span class="csl-left-margin">\[9\]
 </span><span class="csl-right-inline">H. Wickham, *Advanced r*, 2nd ed.
 Chapman; Hall/CRC, 2019. doi:
 [10.1201/9781351201315](https://doi.org/10.1201/9781351201315).
@@ -61,7 +97,7 @@ Available: <https://adv-r.hadley.nz/></span>
 
 <div id="ref-bench" class="csl-entry">
 
-<span class="csl-left-margin">\[6\]
+<span class="csl-left-margin">\[10\]
 </span><span class="csl-right-inline">J. Hester and D. Vaughan, *Bench:
 High precision timing of r expressions*. 2025. Available:
 <https://bench.r-lib.org/></span>
@@ -70,7 +106,7 @@ High precision timing of r expressions*. 2025. Available:
 
 <div id="ref-PSIS" class="csl-entry">
 
-<span class="csl-left-margin">\[7\]
+<span class="csl-left-margin">\[11\]
 </span><span class="csl-right-inline">A. Vehtari, D. Simpson, A. Gelman,
 Y. Yao, and J. Gabry, “Pareto smoothed importance sampling,” *Journal of
 Machine Learning Research*, vol. 25, no. 72, pp. 1–58, 2024, Available:
@@ -80,7 +116,7 @@ Machine Learning Research*, vol. 25, no. 72, pp. 1–58, 2024, Available:
 
 <div id="ref-amdahl" class="csl-entry">
 
-<span class="csl-left-margin">\[8\]
+<span class="csl-left-margin">\[12\]
 </span><span class="csl-right-inline">G. M. Amdahl, “Validity of the
 single processor approach to achieving large scale computing
 capabilities,” in *Proceedings of the april 18-20, 1967, spring joint
@@ -93,7 +129,7 @@ Available: <https://doi.org/10.1145/1465482.1465560></span>
 
 <div id="ref-crew" class="csl-entry">
 
-<span class="csl-left-margin">\[9\]
+<span class="csl-left-margin">\[13\]
 </span><span class="csl-right-inline">W. M. Landau, *Crew: A distributed
 worker launcher framework*. 2026. Available:
 <https://wlandau.github.io/crew/></span>

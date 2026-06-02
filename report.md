@@ -5,18 +5,164 @@
 
 <!-- TODO: what is parallelization, why we would want it, differences in multiprocessing/multithreading, etc., how to do in R, how does mirai work -->
 
+### `mirai`
+
+The parallelization package we are using is \[1\], self-described as a
+“Minimalist Async Evaluation Framework for R”. Before we briefly
+describe how `mirai` works at a high level, it is useful to mention some
+of its benefits which led us to select it as our parallel backend.
+
+`mirai` very naturally allows for heterogenous compute through a clean
+API. What this means in practice is that, once we migrate to `mirai`,
+users will be able to run `loo` code in parallel on their laptop, on
+remote computers, on a HPC system, or any zany mixture (\[1\],
+specifically see
+[sec. 6](https://mirai.r-lib.org/articles/v01-reference.html#remote-infrastructure)
+in the Reference Manual). Decoupling the execution profile from `loo`
+code, especially using the API `mirai` exposes, allows for users to more
+easily exploit their available computational resources without much
+hassle.
+
+`mirai` is also [widely
+used](https://mirai.r-lib.org/index.html#across-the-r-stack) across
+major R packages–for example, recently landing in `purrr` \[2\], \[3\]
+([`in_parallel()`](https://purrr.tidyverse.org/reference/in_parallel.html#references)).
+`mirai` is also “the first official alternative communications backend
+for base R’s `parallel` package.” \[1\], and is used in other major
+packages like `shiny` (\[1\], see [the
+vignette](https://mirai.r-lib.org/articles/shiny.html)), in `tune` which
+is widely used as part of the `tidymodels` workflow (\[4\], see [the
+vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
+
+#### RNG
+
+``` r
+set.seed(0)
+lapply(1:4, rexp)
+```
+
+    [[1]]
+    [1] 0.1840366
+
+    [[2]]
+    [1] 0.1457067 0.1397953
+
+    [[3]]
+    [1] 0.4360686 2.8949685 1.2295621
+
+    [[4]]
+    [1] 0.5396828 0.9565675 0.1470460 1.3907351
+
+``` r
+mirai::daemons(4)
+mirai::mirai_map(1:4, rexp)[]
+```
+
+    [[1]]
+    [1] 1.698574
+
+    [[2]]
+    [1] 0.14120324 0.08048577
+
+    [[3]]
+    [1] 1.7027616 0.7999829 1.6198246
+
+    [[4]]
+    [1] 0.5464926 2.4016744 0.7158378 2.4889851
+
+``` r
+mirai::daemons(0)
+```
+
+Note that base R’s `set.seed()` has no effect on `mirai` \[1\]. Further,
+note that by default if `daemons()` is called without any arguments, the
+RNG streams aren’t reproducible (just like results in serial execution
+without setting a seed). I.e., running `rexp()` again will get different
+results:
+
+``` r
+mirai::daemons(4)
+mirai::mirai_map(1:4, rexp)[]
+```
+
+    [[1]]
+    [1] 2.205043
+
+    [[2]]
+    [1] 1.0594451 0.5702792
+
+    [[3]]
+    [1] 0.2033974 0.5963998 0.2977186
+
+    [[4]]
+    [1] 0.3156730 0.9047978 1.3139224 1.6022024
+
+``` r
+mirai::daemons(0)
+```
+
+`mirai` uses L’Ecuyer PRNG, and even without an explicit seed `mirai`
+ensures “statistical validity but not numerical reproducibility between
+runs” \[5\]. Setting a seed manually when launching daemons gets
+reproducibility (stabilty over runs), “regardless of the number of
+daemons used.” \[5\].
+
+``` r
+mirai::daemons(4, seed = 0)
+mirai::mirai_map(1:4, rexp)[]
+```
+
+    [[1]]
+    [1] 1.024857
+
+    [[2]]
+    [1] 0.09307937 0.52138402
+
+    [[3]]
+    [1] 2.3136494 0.3730846 1.6181639
+
+    [[4]]
+    [1] 0.8212031 0.8856498 3.6420851 1.5720858
+
+``` r
+mirai::daemons(0)
+
+mirai::daemons(4, seed = 0)
+mirai::mirai_map(1:4, rexp)[]
+```
+
+    [[1]]
+    [1] 1.024857
+
+    [[2]]
+    [1] 0.09307937 0.52138402
+
+    [[3]]
+    [1] 2.3136494 0.3730846 1.6181639
+
+    [[4]]
+    [1] 0.8212031 0.8856498 3.6420851 1.5720858
+
+``` r
+mirai::daemons(0)
+```
+
+In essence, reproducibility is the users’ responsibility, akin to
+compute setups. This further stresses the fact that documentation is a
+major part of this project.
+
 ### Serial `mirai` execution
 
 Currently, parallelization in loo goes through [three
 paths](https://github.com/stan-dev/loo/blob/05a6bd20af83c919ba7a5572e3e0a50426c17a77/R/importance_sampling.R#L206)
-\[1\]:
+\[6\]:
 
 1.  Serial execution using `lapply()`
 2.  Forking through `parallel::mclapply()`
 3.  Fresh processes through `parallel::parLapply()`
 
 The serial execution path is taken when the `cores` argument is equal to
-1, and forking is only available on Linux and MacOS. Since `mirai` \[2\]
+1, and forking is only available on Linux and MacOS. Since `mirai` \[1\]
 neatly subsumes paths 2 and 3, a question we had was what would the
 performance hit be if we also removed 1–that is, if a user requested
 serial execution, what do we lose by using `mirai` with a single core.
@@ -88,14 +234,14 @@ results |> summary(relative = TRUE)
 NB: the `mem_alloc` column should not be interpreted as total memory
 usage for `mirai`: `bench::mark()` records R heap allocations via
 `utils::Rprofmem()`, which is not able to track daemons’ memory usage
-\[2\], \[3\], \[4\].
+\[1\], \[7\], \[8\].
 
 `mirai_map()` with a single daemon has a median runtime of ~26ms,
 roughly 2.5x slower than the fastest in-process approach. Of course, in
 absolute terms the difference is negligible, adding only about 15ms. The
 memory usage of all in-process approaches are relatively close to one
 another. `vapply()`’s small memory overhead may probably be attributed
-to the extra work it does validating types and lengths and such \[4\].
+to the extra work it does validating types and lengths and such \[8\].
 
 In short, it is probably a good idea to directly test the effects of
 serial `mirai` execution in `loo`, but it is likely that we will find
@@ -201,7 +347,7 @@ helpful (see
 we found two potential speedups–in these places, we may be able to
 benefit from *vectorizing* functions instead of parallelizing a loop.
 Vectorization is advantageous in these spots as we would be rewriting R
-loops as optimized matrix operations \[5, Secs. 24.5–24.7\].
+loops as optimized matrix operations \[9, Secs. 24.5–24.7\].
 
 > Matrix algebra is a general example of vectorisation. There loops are
 > executed by highly tuned external libraries like BLAS. If you can
@@ -222,7 +368,7 @@ Bayesian bootstrap iterations where it seems quite plausible to swap to
 matrix operations. This could potentially be a large speedup as the loop
 is large, being of length `BB_n`, which defaults to 1,000 replications.
 There don’t appear to be any reallocations in the loop, so the speedup
-will probably be dominated by the efficiency of matrix ops \[5, Secs.
+will probably be dominated by the efficiency of matrix ops \[9, Secs.
 5.3.1, 24.6\]. This is tracked in \#XXX. <!-- TODO: PR -->
 
 Similarly, though less interesting, is a gradient calculation in
@@ -266,7 +412,7 @@ where each process takes time and needs its own core. Oversubscription
 is promising more parallelization than what the hardware can
 provide–note that parallelization usually has some fixed startup costs
 as well (see
-<a href="#sec-mirai-overhead" class="quarto-xref">Section 1.1</a>), so
+<a href="#sec-mirai-overhead" class="quarto-xref">Section 1.2</a>), so
 we would probably lose performance. In `loo` specifically, we must be
 careful when parallelizing functions to ensure we do not accidentally
 have nested parallelization.
@@ -310,7 +456,7 @@ sessioninfo::session_info(
 
     Warning in system2("quarto", "-V", stdout = TRUE, env = paste0("TMPDIR=", :
     running command '"quarto"
-    TMPDIR=C:/Users/visru/AppData/Local/Temp/Rtmp4cqzat/file2b4c1563320 -V' had
+    TMPDIR=C:/Users/visru/AppData/Local/Temp/RtmpC8IKLi/file175c16745524 -V' had
     status 1
 
     ─ Session info ───────────────────────────────────────────────────────────────
@@ -355,13 +501,13 @@ peak usage and it normally doesn’t go so high, and the peaks don’t
 overlap, then it is possible for you to squeeze past without 16 gigs
 free. Note, however, that this 1GB usage per parallel worker is assuming
 that there is no memory that can be shared. If objects are reused across
-workers, we could using something like `mori` \[6\] in R to reduce the
+workers, we could using something like `mori` \[10\] in R to reduce the
 physical memory usage by mapping some objects in workers to the same
 shared address spaces, thus eliding copies–unless, of course, a worker
 modifies the object. This can be loosely seen as mildly clawing back
 some of the benefits of forking with respect to memory. Note however,
 that `mori` works on a limited set of R objects, specifically “atomic
-vector types, lists, and data frames” \[6\]. See
+vector types, lists, and data frames” \[10\]. See
 <a href="#sec-mori-model-methods" class="quarto-xref">Section 7.2</a>
 for empirical proof that we cannot naively use `mori` to share compiled
 model methods across workers.
@@ -381,27 +527,63 @@ to see how accurate and conservative our model is.
 
 <div id="refs" class="references csl-bib-body" entry-spacing="0">
 
-<div id="ref-loo" class="csl-entry">
-
-<span class="csl-left-margin">\[1\]
-</span><span class="csl-right-inline">A. Vehtari *et al.*, “Loo:
-Efficient leave-one-out cross-validation and WAIC for bayesianmodels.”
-2025. Available: <https://mc-stan.org/loo/></span>
-
-</div>
-
 <div id="ref-mirai" class="csl-entry">
 
-<span class="csl-left-margin">\[2\]
+<span class="csl-left-margin">\[1\]
 </span><span class="csl-right-inline">C. Gao, *Mirai: Minimalist async
 evaluation framework for r*. 2026. Available:
 <https://mirai.r-lib.org></span>
 
 </div>
 
-<div id="ref-bench" class="csl-entry">
+<div id="ref-purrr-1.1.0" class="csl-entry">
+
+<span class="csl-left-margin">\[2\]
+</span><span class="csl-right-inline">D. V. Charlie Gao Hadley Wickham
+and L. Henry, “Parallel processing in purrr 1.1.0,” July 10, 2025.
+Available:
+<https://tidyverse.org/blog/2025/07/purrr-1-1-0-parallel/></span>
+
+</div>
+
+<div id="ref-purrr" class="csl-entry">
 
 <span class="csl-left-margin">\[3\]
+</span><span class="csl-right-inline">H. Wickham and L. Henry, *Purrr:
+Functional programming tools*. 2026. Available:
+<https://purrr.tidyverse.org/></span>
+
+</div>
+
+<div id="ref-tune" class="csl-entry">
+
+<span class="csl-left-margin">\[4\]
+</span><span class="csl-right-inline">M. Kuhn, *Tune: Tidy tuning
+tools*. 2026. Available: <https://tune.tidymodels.org/></span>
+
+</div>
+
+<div id="ref-mirai-2.5.0" class="csl-entry">
+
+<span class="csl-left-margin">\[5\]
+</span><span class="csl-right-inline">C. Gao, “Mirai 2.5.0,” Sept. 05,
+2025. Available:
+<https://tidyverse.org/blog/2025/09/mirai-2-5-0/></span>
+
+</div>
+
+<div id="ref-loo" class="csl-entry">
+
+<span class="csl-left-margin">\[6\]
+</span><span class="csl-right-inline">A. Vehtari *et al.*, “Loo:
+Efficient leave-one-out cross-validation and WAIC for bayesianmodels.”
+2025. Available: <https://mc-stan.org/loo/></span>
+
+</div>
+
+<div id="ref-bench" class="csl-entry">
+
+<span class="csl-left-margin">\[7\]
 </span><span class="csl-right-inline">J. Hester and D. Vaughan, *Bench:
 High precision timing of r expressions*. 2025. Available:
 <https://bench.r-lib.org/></span>
@@ -410,7 +592,7 @@ High precision timing of r expressions*. 2025. Available:
 
 <div id="ref-R" class="csl-entry">
 
-<span class="csl-left-margin">\[4\]
+<span class="csl-left-margin">\[8\]
 </span><span class="csl-right-inline">R Core Team, *R: A language and
 environment for statistical computing*. Vienna, Austria: R Foundation
 for Statistical Computing, 2026. Available:
@@ -420,7 +602,7 @@ for Statistical Computing, 2026. Available:
 
 <div id="ref-advr" class="csl-entry">
 
-<span class="csl-left-margin">\[5\]
+<span class="csl-left-margin">\[9\]
 </span><span class="csl-right-inline">H. Wickham, *Advanced r*, 2nd ed.
 Chapman; Hall/CRC, 2019. doi:
 [10.1201/9781351201315](https://doi.org/10.1201/9781351201315).
@@ -430,7 +612,7 @@ Available: <https://adv-r.hadley.nz/></span>
 
 <div id="ref-moripost" class="csl-entry">
 
-<span class="csl-left-margin">\[6\]
+<span class="csl-left-margin">\[10\]
 </span><span class="csl-right-inline">C. Gao, “Mori: Shared memory for r
 objects,” Apr. 23, 2026. Available:
 <https://opensource.posit.co/blog/2026-04-23_mori-0-1-0/>. \[Accessed:

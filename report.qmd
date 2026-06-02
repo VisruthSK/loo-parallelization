@@ -9,6 +9,47 @@ format:
 
 <!-- TODO: what is parallelization, why we would want it, differences in multiprocessing/multithreading, etc., how to do in R, how does mirai work -->
 
+### `mirai`
+
+The parallelization package we are using is @mirai, self-described as a "Minimalist Async Evaluation Framework for R". Before we briefly describe how `mirai` works at a high level, it is useful to mention some of its benefits which led us to select it as our parallel backend.
+
+`mirai` very naturally allows for heterogenous compute through a clean API. What this means in practice is that, once we migrate to `mirai`, users will be able to run `loo` code in parallel on their laptop, on remote computers, on a HPC system, or any zany mixture (@mirai, specifically see [sec. 6](https://mirai.r-lib.org/articles/v01-reference.html#remote-infrastructure) in the Reference Manual). Decoupling the execution profile from `loo` code, especially using the API `mirai` exposes, allows for users to more easily exploit their available computational resources without much hassle.
+
+`mirai` is also [widely used](https://mirai.r-lib.org/index.html#across-the-r-stack) across major R packages--for example, recently landing in `purrr` [@purrr-1.1.0; @purrr] ([`in_parallel()`](https://purrr.tidyverse.org/reference/in_parallel.html#references)). `mirai` is also "the first official alternative communications backend for base R’s `parallel` package." @mirai, and is used in other major packages like `shiny` (@mirai, see [the vignette](https://mirai.r-lib.org/articles/shiny.html)), in `tune` which is widely used as part of the `tidymodels` workflow (@tune, see [the vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
+
+#### RNG
+
+```{r}
+set.seed(0)
+lapply(1:4, rexp)
+
+mirai::daemons(4)
+mirai::mirai_map(1:4, rexp)[]
+mirai::daemons(0)
+```
+
+Note that base R's `set.seed()` has no effect on `mirai` @mirai. Further, note that by default if `daemons()` is called without any arguments, the RNG streams aren't reproducible (just like results in serial execution without setting a seed). I.e., running `rexp()` again will get different results:
+
+```{r}
+mirai::daemons(4)
+mirai::mirai_map(1:4, rexp)[]
+mirai::daemons(0)
+```
+
+`mirai` uses L'Ecuyer PRNG, and even without an explicit seed `mirai` ensures "statistical validity but not numerical reproducibility between runs" @mirai-2.5.0. Setting a seed manually when launching daemons gets reproducibility (stabilty over runs), "regardless of the number of daemons used." @mirai-2.5.0.
+
+```{r}
+mirai::daemons(4, seed = 0)
+mirai::mirai_map(1:4, rexp)[]
+mirai::daemons(0)
+
+mirai::daemons(4, seed = 0)
+mirai::mirai_map(1:4, rexp)[]
+mirai::daemons(0)
+```
+
+In essence, reproducibility is the users' responsibility, akin to compute setups. This further stresses the fact that documentation is a major part of this project.
+
 ### Serial `mirai` execution {#sec-mirai-overhead}
 
 Currently, parallelization in loo goes through [three paths](https://github.com/stan-dev/loo/blob/05a6bd20af83c919ba7a5572e3e0a50426c17a77/R/importance_sampling.R#L206) @loo:
