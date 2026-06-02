@@ -15,7 +15,7 @@ The parallelization package we are using is @mirai, self-described as a "Minimal
 
 `mirai` very naturally allows for heterogenous compute through a clean API. What this means in practice is that, once we migrate to `mirai`, users will be able to run `loo` code in parallel on their laptop, on remote computers, on a HPC system, or any zany mixture (@mirai, specifically see [sec. 6](https://mirai.r-lib.org/articles/v01-reference.html#remote-infrastructure) in the Reference Manual). Decoupling the execution profile from `loo` code, especially using the API `mirai` exposes, allows for users to more easily exploit their available computational resources without much hassle.
 
-`mirai` is also [widely used](https://mirai.r-lib.org/index.html#across-the-r-stack) across major R packages--for example, recently landing in `purrr` [@purrr-1.1.0; @purrr] ([`in_parallel()`](https://purrr.tidyverse.org/reference/in_parallel.html#references)). `mirai` is also "the first official alternative communications backend for base R’s `parallel` package." @mirai, and is used in other major packages like `shiny` (@mirai, see [the vignette](https://mirai.r-lib.org/articles/shiny.html)), in `tune` which is widely used as part of the `tidymodels` workflow (@tune, see [the vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
+`mirai` is also [widely used](https://mirai.r-lib.org/index.html#across-the-r-stack) across major R packages--for example, recently landing in `purrr` [@purrr-1.1.0; @purrr] ([`in_parallel()`](https://purrr.tidyverse.org/reference/in_parallel.html#references)). `mirai` is also "the first official alternative communications backend for base R’s `parallel` package." @mirai, and is used in other major packages like `shiny` (@mirai, see [the vignette](https://mirai.r-lib.org/articles/shiny.html)), and in `tune`, which is a vital part of the `tidymodels` workflow (@tune, see [the vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
 
 #### RNG
 
@@ -49,6 +49,20 @@ mirai::daemons(0)
 ```
 
 In essence, reproducibility is the users' responsibility, akin to compute setups. This further stresses the fact that documentation is a major part of this project.
+
+### Memory {#sec-memory}
+
+<!-- TODO: brief intro, maybe consolidate all memory discussion-->
+
+#### Memory usage and `loo`
+
+Parallelization may lead to running out of memory (OOM). Copying the construction from that note: if you have, say, 8GB memory but spin up 16 tasks which each use 1GB, you will run out of memory. The math here is quite clear, though it is worst case and is complicated by the profile of the program--if that 1GB is peak usage and it normally doesn't go so high, and the peaks don't overlap, then it is possible for you to squeeze past without 16 gigs free. Note, however, that this 1GB usage per parallel worker is assuming that there is no memory that can be shared. If objects are reused across workers, we could using something like `mori` @moripost in R to reduce the physical memory usage by mapping some objects in workers to the same shared address spaces, thus eliding copies--unless, of course, a worker modifies the object. This can be loosely seen as mildly clawing back some of the benefits of forking with respect to memory. Note however, that `mori` works on a limited set of R objects, specifically "atomic vector types, lists, and data frames" @moripost. See @sec-mori-model-methods for empirical proof that we cannot naively use `mori` to share compiled model methods across workers. 
+
+Since OOM is a slightly tricky thing to think about, one user friendly feature we would like to implement, somewhat orthogonal to swapping to `mirai`, is having parallel functions check how much memory they need and warn users if a run might run out of memory. We could do this pretty simply by running our functions across varying input sizes and modelling peak memory usage (probably averaged over a few runs) as a function of the parameters. Of course, if we implement this we would need to test it to see how accurate and conservative our model is.
+
+#### `mori` and model methods {#sec-mori-model-methods}
+
+<!-- TODO -->
 
 ### Serial `mirai` execution {#sec-mirai-overhead}
 
@@ -213,6 +227,7 @@ We first are doing something parallely over values of `xs`, but then we try to w
     * provide experiments to stress your statement
 
 ### Potential problems with packages that make use of `loo` such that nested parallelization can occur?
+
 However, we know that other packages also call `loo` functions, which is another potential vector for nested parallelization. To this end, it seems like `brms` is the only (Stan) package where this could even be vaguely possible, but doing so seems to necessitate wilful parallelization not provided natively by `brms`. This merits further investigation, but it seems like we can (softly) table concerns regarding external nested parallelization for now.
 
 <!-- TODO -->
@@ -220,29 +235,97 @@ Make a list of packages of which you have thought of:
 * package name
 * Any issues that you see?
 * (make a short note even if you don't see issues)
+<!-- TODO -->
 
 ## Appendix
+
+### `b3`: Bayesian Branch Benchmarking
+
+What follows is a proposal for `b3`, a benchmarking tool designed to replace `touchstone` in Stan R packages and is far more flexible and broader in scope. `b3` is included here in the appendix as it could potentially improve our PR-level performance benchmarking, both for time and memory usage.
+
+---
+
+`b3` aims to measure language-agnostic end-to-end branch-vs-baseline performance diffs. `b3`'s philosophy is akin to touchstone @touchstone, but shucks the R focus--`b3` handles orchestration, measurement, and reporting, while users must provide their project runtime, dependency setup, and benchmark command. `b3` compares complete repository states: if the candidate branch changes the benchmark, data, config, or dependencies, that change is part of the measured result.
+
+#### Core
+
+`b3` is one prebuilt native binary.
+
+Users only set up their project runtime and declare their benchmarks.
+
+R users set up R.
+Node users set up Node.
+Rust users set up Rust.
+Python users set up Python.
+
+Setup and benchmark commands are opaque subprocesses specified by the user which `b3` simply executes. On Unix they may be Bash; on Windows they may be PowerShell; for R projects they may be `Rscript` directly.
+
+`b3` handles:
+
+git worktrees
+runtime preset environment variables
+optional setup commands
+paired randomized benchmark runs
+timing
+process-tree peak memory polling
+Bayesian bootstrap posterior summaries
+
+#### Evaluation Environment
+
+Similar to `touchstone`, `b3` separates environment isolation from dependency caching. Each variant gets its own environment inside its worktree, so baseline and candidate can resolve different dependency graphs safely. Download caches are shared across variants and CI runs, so unchanged packages do not need to be downloaded or rebuilt repeatedly. Of course, `b3` does not resolve dependencies itself--it exposes runtime presets that configure standard env/cache locations, then runs the user’s setup command. Users can always opt into specifying everything manually. Regardless, dependency resolution remains the responsibility of the project’s normal tooling: `rv`, `renv`, `pak`, `uv`, `npm`, `cargo`, etc. 
+
+`b3` can optionally run a cleanup command before each measured run. By default, dependency environments are reused across runs, but benchmark-created state is the user’s responsibility. Benchmarks should either avoid persistent side effects which impact performance, or configure cleanup so each measured run starts from a comparable state.
+
+#### Measurement
+
+`b3` can run one or more named benchmarks. Each benchmark gets its own paired randomized baseline/candidate runs and its own posterior summaries for time and memory usage. For each paired block, randomize order: baseline then candidate, or candidate then baseline. Each command runs from its own worktree.
+
+`b3` records: 
+
+elapsed_sec
+average_memory_bytes
+peak_memory_bytes
+exit_status
+
+Runs with non-zero exit status are reported separately and excluded from posterior summaries unless explicitly configured otherwise. Note that memory measurement is best-effort and potentially platform-dependent. Short-lived spikes, detached subprocesses, permission boundaries, and OS-specific memory accounting may affect the reported value. Limitations/scope will be made abundantly clear in the API.
+
+#### Analysis
+
+For each metric, B3 computes paired log ratios:
+
+$$
+d_i = log(candidate_i / baseline_i)
+$$
+
+B3 uses a Bayesian bootstrap over paired blocks: each posterior draw samples Dirichlet weights over blocks, computes the weighted mean of the paired log ratios. B3 also employs mild shrinkage toward 0 (which can be disabled).
+
+B3 reports:
+
+median candidate/baseline ratio
+median percent change
+credible intervals
+P(candidate worse)
+P(candidate >1%, >5%, >10%, >20% worse)
+
+B3 also reports order-stratified posterior summaries for baseline-first and candidate-first paired blocks. If the order-stratified effects disagree materially, this _may_ mean that the results are unstable and that the number of runs should be increased. The benchmarks/commands may be suspect as well. In the future, B3 might expand to a more complex model which can better capture order effects.
+
+#### Misc.
+
+`b3` will also help scaffold GHA workflows to quickstart using `b3` for PR-level performance reports. Extensions to the project include a more complex model, wrappers around the core CLI in various host languages to facilitate usage, first-class support for standing up non-GHA CI/CD workflows, and so on.
+
+### Session Info
 
 ```{r}
 #| label: session-info
 #| cache: false
 sessioninfo::session_info(
-  pkgs = c("loo", "mirai", "bench", "purrr"),
+  pkgs = c("loo", "mirai", "bench", "purrr", "sessioninfo"),
   info = c("platform", "packages"),
   dependencies = FALSE
 )
 ```
 
-## Memory {#sec-memory}
+### References
 
-<!-- TODO: brief intro, maybe consolidate all memory discussion-->
-
-### Memory usage and `loo`
-
-As briefly discussed in [Nested Parallelization](nested_parallelization.md), parallelization may lead to running out of memory (OOM). Copying the construction from that note: if you have, say, 8GB memory but spin up 16 tasks which each use 1GB, you will run out of memory. The math here is quite clear, though it is worst case and is complicated by the profile of the program--if that 1GB is peak usage and it normally doesn't go so high, and the peaks don't overlap, then it is possible for you to squeeze past without 16 gigs free. Note, however, that this 1GB usage per parallel worker is assuming that there is no memory that can be shared. If objects are reused across workers, we could using something like `mori` @moripost in R to reduce the physical memory usage by mapping some objects in workers to the same shared address spaces, thus eliding copies--unless, of course, a worker modifies the object. This can be loosely seen as mildly clawing back some of the benefits of forking with respect to memory. Note however, that `mori` works on a limited set of R objects, specifically "atomic vector types, lists, and data frames" @moripost. See @sec-mori-model-methods for empirical proof that we cannot naively use `mori` to share compiled model methods across workers. 
-
-Since OOM is a slightly tricky thing to think about, one user friendly feature we would like to implement, somewhat orthogonal to swapping to `mirai`, is having parallel functions check how much memory they need and warn users if a run might run out of memory. We could do this pretty simply by running our functions across varying input sizes and modelling peak memory usage (probably averaged over a few runs) as a function of the parameters. Of course, if we implement this we would need to test it to see how accurate and conservative our model is.
-
-### `mori` and model methods {#sec-mori-model-methods}
-
-<!-- TODO -->
+::: {#refs}
+:::

@@ -30,8 +30,8 @@ major R packages–for example, recently landing in `purrr` \[2\], \[3\]
 `mirai` is also “the first official alternative communications backend
 for base R’s `parallel` package.” \[1\], and is used in other major
 packages like `shiny` (\[1\], see [the
-vignette](https://mirai.r-lib.org/articles/shiny.html)), in `tune` which
-is widely used as part of the `tidymodels` workflow (\[4\], see [the
+vignette](https://mirai.r-lib.org/articles/shiny.html)), and in `tune`,
+which is a vital part of the `tidymodels` workflow (\[4\], see [the
 vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
 
 #### RNG
@@ -151,11 +151,50 @@ In essence, reproducibility is the users’ responsibility, akin to
 compute setups. This further stresses the fact that documentation is a
 major part of this project.
 
+### Memory
+
+<!-- TODO: brief intro, maybe consolidate all memory discussion-->
+
+#### Memory usage and `loo`
+
+Parallelization may lead to running out of memory (OOM). Copying the
+construction from that note: if you have, say, 8GB memory but spin up 16
+tasks which each use 1GB, you will run out of memory. The math here is
+quite clear, though it is worst case and is complicated by the profile
+of the program–if that 1GB is peak usage and it normally doesn’t go so
+high, and the peaks don’t overlap, then it is possible for you to
+squeeze past without 16 gigs free. Note, however, that this 1GB usage
+per parallel worker is assuming that there is no memory that can be
+shared. If objects are reused across workers, we could using something
+like `mori` \[6\] in R to reduce the physical memory usage by mapping
+some objects in workers to the same shared address spaces, thus eliding
+copies–unless, of course, a worker modifies the object. This can be
+loosely seen as mildly clawing back some of the benefits of forking with
+respect to memory. Note however, that `mori` works on a limited set of R
+objects, specifically “atomic vector types, lists, and data frames”
+\[6\]. See
+<a href="#sec-mori-model-methods" class="quarto-xref">Section 1.2.2</a>
+for empirical proof that we cannot naively use `mori` to share compiled
+model methods across workers.
+
+Since OOM is a slightly tricky thing to think about, one user friendly
+feature we would like to implement, somewhat orthogonal to swapping to
+`mirai`, is having parallel functions check how much memory they need
+and warn users if a run might run out of memory. We could do this pretty
+simply by running our functions across varying input sizes and modelling
+peak memory usage (probably averaged over a few runs) as a function of
+the parameters. Of course, if we implement this we would need to test it
+to see how accurate and conservative our model is.
+
+#### `mori` and model methods
+
+<!-- TODO -->
+
 ### Serial `mirai` execution
 
 Currently, parallelization in loo goes through [three
 paths](https://github.com/stan-dev/loo/blob/05a6bd20af83c919ba7a5572e3e0a50426c17a77/R/importance_sampling.R#L206)
-\[6\]:
+\[7\]:
 
 1.  Serial execution using `lapply()`
 2.  Forking through `parallel::mclapply()`
@@ -234,14 +273,14 @@ results |> summary(relative = TRUE)
 NB: the `mem_alloc` column should not be interpreted as total memory
 usage for `mirai`: `bench::mark()` records R heap allocations via
 `utils::Rprofmem()`, which is not able to track daemons’ memory usage
-\[1\], \[7\], \[8\].
+\[1\], \[8\], \[9\].
 
 `mirai_map()` with a single daemon has a median runtime of ~26ms,
 roughly 2.5x slower than the fastest in-process approach. Of course, in
 absolute terms the difference is negligible, adding only about 15ms. The
 memory usage of all in-process approaches are relatively close to one
 another. `vapply()`’s small memory overhead may probably be attributed
-to the extra work it does validating types and lengths and such \[8\].
+to the extra work it does validating types and lengths and such \[9\].
 
 In short, it is probably a good idea to directly test the effects of
 serial `mirai` execution in `loo`, but it is likely that we will find
@@ -347,7 +386,7 @@ helpful (see
 we found two potential speedups–in these places, we may be able to
 benefit from *vectorizing* functions instead of parallelizing a loop.
 Vectorization is advantageous in these spots as we would be rewriting R
-loops as optimized matrix operations \[9, Secs. 24.5–24.7\].
+loops as optimized matrix operations \[10, Secs. 24.5–24.7\].
 
 > Matrix algebra is a general example of vectorisation. There loops are
 > executed by highly tuned external libraries like BLAS. If you can
@@ -368,7 +407,7 @@ Bayesian bootstrap iterations where it seems quite plausible to swap to
 matrix operations. This could potentially be a large speedup as the loop
 is large, being of length `BB_n`, which defaults to 1,000 replications.
 There don’t appear to be any reallocations in the loop, so the speedup
-will probably be dominated by the efficiency of matrix ops \[9, Secs.
+will probably be dominated by the efficiency of matrix ops \[10, Secs.
 5.3.1, 24.6\]. This is tracked in \#XXX. <!-- TODO: PR -->
 
 Similarly, though less interesting, is a gradient calculation in
@@ -412,7 +451,7 @@ where each process takes time and needs its own core. Oversubscription
 is promising more parallelization than what the hardware can
 provide–note that parallelization usually has some fixed startup costs
 as well (see
-<a href="#sec-mirai-overhead" class="quarto-xref">Section 1.2</a>), so
+<a href="#sec-mirai-overhead" class="quarto-xref">Section 1.3</a>), so
 we would probably lose performance. In `loo` specifically, we must be
 careful when parallelizing functions to ensure we do not accidentally
 have nested parallelization.
@@ -442,22 +481,126 @@ regarding external nested parallelization for now.
 
 Make a list of packages of which you have thought of: \* package name \*
 Any issues that you see? \* (make a short note even if you don’t see
-issues)
+issues) <!-- TODO -->
 
 ## Appendix
 
+### `b3`: Bayesian Branch Benchmarking
+
+What follows is a proposal for `b3`, a benchmarking tool designed to
+replace `touchstone` in Stan R packages and is far more flexible and
+broader in scope. `b3` is included here in the appendix as it could
+potentially improve our PR-level performance benchmarking, both for time
+and memory usage.
+
+------------------------------------------------------------------------
+
+`b3` aims to measure language-agnostic end-to-end branch-vs-baseline
+performance diffs. `b3`’s philosophy is akin to touchstone \[11\], but
+shucks the R focus–`b3` handles orchestration, measurement, and
+reporting, while users must provide their project runtime, dependency
+setup, and benchmark command. `b3` compares complete repository states:
+if the candidate branch changes the benchmark, data, config, or
+dependencies, that change is part of the measured result.
+
+#### Core
+
+`b3` is one prebuilt native binary.
+
+Users only set up their project runtime and declare their benchmarks.
+
+R users set up R. Node users set up Node. Rust users set up Rust. Python
+users set up Python.
+
+Setup and benchmark commands are opaque subprocesses specified by the
+user which `b3` simply executes. On Unix they may be Bash; on Windows
+they may be PowerShell; for R projects they may be `Rscript` directly.
+
+`b3` handles:
+
+git worktrees runtime preset environment variables optional setup
+commands paired randomized benchmark runs timing process-tree peak
+memory polling Bayesian bootstrap posterior summaries
+
+#### Evaluation Environment
+
+Similar to `touchstone`, `b3` separates environment isolation from
+dependency caching. Each variant gets its own environment inside its
+worktree, so baseline and candidate can resolve different dependency
+graphs safely. Download caches are shared across variants and CI runs,
+so unchanged packages do not need to be downloaded or rebuilt
+repeatedly. Of course, `b3` does not resolve dependencies itself–it
+exposes runtime presets that configure standard env/cache locations,
+then runs the user’s setup command. Users can always opt into specifying
+everything manually. Regardless, dependency resolution remains the
+responsibility of the project’s normal tooling: `rv`, `renv`, `pak`,
+`uv`, `npm`, `cargo`, etc.
+
+`b3` can optionally run a cleanup command before each measured run. By
+default, dependency environments are reused across runs, but
+benchmark-created state is the user’s responsibility. Benchmarks should
+either avoid persistent side effects which impact performance, or
+configure cleanup so each measured run starts from a comparable state.
+
+#### Measurement
+
+`b3` can run one or more named benchmarks. Each benchmark gets its own
+paired randomized baseline/candidate runs and its own posterior
+summaries for time and memory usage. For each paired block, randomize
+order: baseline then candidate, or candidate then baseline. Each command
+runs from its own worktree.
+
+`b3` records:
+
+elapsed_sec average_memory_bytes peak_memory_bytes exit_status
+
+Runs with non-zero exit status are reported separately and excluded from
+posterior summaries unless explicitly configured otherwise. Note that
+memory measurement is best-effort and potentially platform-dependent.
+Short-lived spikes, detached subprocesses, permission boundaries, and
+OS-specific memory accounting may affect the reported value.
+Limitations/scope will be made abundantly clear in the API.
+
+#### Analysis
+
+For each metric, B3 computes paired log ratios:
+
+$$d_i = log(candidate_i / baseline_i)$$
+
+B3 uses a Bayesian bootstrap over paired blocks: each posterior draw
+samples Dirichlet weights over blocks, computes the weighted mean of the
+paired log ratios. B3 also employs mild shrinkage toward 0 (which can be
+disabled).
+
+B3 reports:
+
+median candidate/baseline ratio median percent change credible intervals
+P(candidate worse) P(candidate \>1%, \>5%, \>10%, \>20% worse)
+
+B3 also reports order-stratified posterior summaries for baseline-first
+and candidate-first paired blocks. If the order-stratified effects
+disagree materially, this *may* mean that the results are unstable and
+that the number of runs should be increased. The benchmarks/commands may
+be suspect as well. In the future, B3 might expand to a more complex
+model which can better capture order effects.
+
+#### Misc.
+
+`b3` will also help scaffold GHA workflows to quickstart using `b3` for
+PR-level performance reports. Extensions to the project include a more
+complex model, wrappers around the core CLI in various host languages to
+facilitate usage, first-class support for standing up non-GHA CI/CD
+workflows, and so on.
+
+### Session Info
+
 ``` r
 sessioninfo::session_info(
-  pkgs = c("loo", "mirai", "bench", "purrr"),
+  pkgs = c("loo", "mirai", "bench", "purrr", "sessioninfo"),
   info = c("platform", "packages"),
   dependencies = FALSE
 )
 ```
-
-    Warning in system2("quarto", "-V", stdout = TRUE, env = paste0("TMPDIR=", :
-    running command '"quarto"
-    TMPDIR=C:/Users/visru/AppData/Local/Temp/RtmpC8IKLi/file175c16745524 -V' had
-    status 1
 
     ─ Session info ───────────────────────────────────────────────────────────────
      setting  value
@@ -471,59 +614,22 @@ sessioninfo::session_info(
      tz       America/Los_Angeles
      date     2026-06-01
      pandoc   3.8.3 @ c:\\Program Files\\Positron\\resources\\app\\quarto\\bin\\tools/ (via rmarkdown)
-     quarto   NA @ C:\\Users\\visru\\AppData\\Local\\Programs\\Quarto\\bin\\quarto.exe
+     quarto   1.9.36 @ C:\\Users\\visru\\AppData\\Local\\Programs\\Quarto\\bin\\quarto.exe
 
     ─ Packages ───────────────────────────────────────────────────────────────────
-     package * version date (UTC) lib source
-     bench     1.1.4   2025-01-16 [1] RSPM (R 4.6.0)
-     loo       2.9.0   2025-12-23 [1] RSPM (R 4.6.0)
-     mirai     2.7.0   2026-05-08 [1] RSPM (R 4.6.0)
-     purrr     1.2.2   2026-04-10 [1] RSPM (R 4.6.0)
+     package     * version    date (UTC) lib source
+     bench         1.1.4      2025-01-16 [1] RSPM (R 4.6.0)
+     loo           2.9.0      2025-12-23 [1] RSPM (R 4.6.0)
+     mirai         2.7.0      2026-05-08 [1] RSPM (R 4.6.0)
+     purrr         1.2.2      2026-04-10 [1] RSPM (R 4.6.0)
+     sessioninfo   1.2.3.9000 2026-06-02 [1] Github (r-lib/sessioninfo@d4e98a4)
 
      [1] C:/Users/visru/AppData/Local/R/win-library/4.6
      [2] C:/Program Files/R/R-4.6.0/library
 
     ──────────────────────────────────────────────────────────────────────────────
 
-## Memory
-
-<!-- TODO: brief intro, maybe consolidate all memory discussion-->
-
-### Memory usage and `loo`
-
-As briefly discussed in [Nested
-Parallelization](nested_parallelization.md), parallelization may lead to
-running out of memory (OOM). Copying the construction from that note: if
-you have, say, 8GB memory but spin up 16 tasks which each use 1GB, you
-will run out of memory. The math here is quite clear, though it is worst
-case and is complicated by the profile of the program–if that 1GB is
-peak usage and it normally doesn’t go so high, and the peaks don’t
-overlap, then it is possible for you to squeeze past without 16 gigs
-free. Note, however, that this 1GB usage per parallel worker is assuming
-that there is no memory that can be shared. If objects are reused across
-workers, we could using something like `mori` \[10\] in R to reduce the
-physical memory usage by mapping some objects in workers to the same
-shared address spaces, thus eliding copies–unless, of course, a worker
-modifies the object. This can be loosely seen as mildly clawing back
-some of the benefits of forking with respect to memory. Note however,
-that `mori` works on a limited set of R objects, specifically “atomic
-vector types, lists, and data frames” \[10\]. See
-<a href="#sec-mori-model-methods" class="quarto-xref">Section 7.2</a>
-for empirical proof that we cannot naively use `mori` to share compiled
-model methods across workers.
-
-Since OOM is a slightly tricky thing to think about, one user friendly
-feature we would like to implement, somewhat orthogonal to swapping to
-`mirai`, is having parallel functions check how much memory they need
-and warn users if a run might run out of memory. We could do this pretty
-simply by running our functions across varying input sizes and modelling
-peak memory usage (probably averaged over a few runs) as a function of
-the parameters. Of course, if we implement this we would need to test it
-to see how accurate and conservative our model is.
-
-### `mori` and model methods
-
-<!-- TODO -->
+### References
 
 <div id="refs" class="references csl-bib-body" entry-spacing="0">
 
@@ -572,9 +678,19 @@ tools*. 2026. Available: <https://tune.tidymodels.org/></span>
 
 </div>
 
-<div id="ref-loo" class="csl-entry">
+<div id="ref-moripost" class="csl-entry">
 
 <span class="csl-left-margin">\[6\]
+</span><span class="csl-right-inline">C. Gao, “Mori: Shared memory for r
+objects,” Apr. 23, 2026. Available:
+<https://opensource.posit.co/blog/2026-04-23_mori-0-1-0/>. \[Accessed:
+May 26, 2026\]</span>
+
+</div>
+
+<div id="ref-loo" class="csl-entry">
+
+<span class="csl-left-margin">\[7\]
 </span><span class="csl-right-inline">A. Vehtari *et al.*, “Loo:
 Efficient leave-one-out cross-validation and WAIC for bayesianmodels.”
 2025. Available: <https://mc-stan.org/loo/></span>
@@ -583,7 +699,7 @@ Efficient leave-one-out cross-validation and WAIC for bayesianmodels.”
 
 <div id="ref-bench" class="csl-entry">
 
-<span class="csl-left-margin">\[7\]
+<span class="csl-left-margin">\[8\]
 </span><span class="csl-right-inline">J. Hester and D. Vaughan, *Bench:
 High precision timing of r expressions*. 2025. Available:
 <https://bench.r-lib.org/></span>
@@ -592,7 +708,7 @@ High precision timing of r expressions*. 2025. Available:
 
 <div id="ref-R" class="csl-entry">
 
-<span class="csl-left-margin">\[8\]
+<span class="csl-left-margin">\[9\]
 </span><span class="csl-right-inline">R Core Team, *R: A language and
 environment for statistical computing*. Vienna, Austria: R Foundation
 for Statistical Computing, 2026. Available:
@@ -602,7 +718,7 @@ for Statistical Computing, 2026. Available:
 
 <div id="ref-advr" class="csl-entry">
 
-<span class="csl-left-margin">\[9\]
+<span class="csl-left-margin">\[10\]
 </span><span class="csl-right-inline">H. Wickham, *Advanced r*, 2nd ed.
 Chapman; Hall/CRC, 2019. doi:
 [10.1201/9781351201315](https://doi.org/10.1201/9781351201315).
@@ -610,13 +726,13 @@ Available: <https://adv-r.hadley.nz/></span>
 
 </div>
 
-<div id="ref-moripost" class="csl-entry">
+<div id="ref-touchstone" class="csl-entry">
 
-<span class="csl-left-margin">\[10\]
-</span><span class="csl-right-inline">C. Gao, “Mori: Shared memory for r
-objects,” Apr. 23, 2026. Available:
-<https://opensource.posit.co/blog/2026-04-23_mori-0-1-0/>. \[Accessed:
-May 26, 2026\]</span>
+<span class="csl-left-margin">\[11\]
+</span><span class="csl-right-inline">L. Walthert and J. Wujciak-Jens,
+*Touchstone: Continuous benchmarking with statistical confidence based
+on ’git’ branches*. 2026. Available:
+<https://github.com/lorenzwalthert/touchstone></span>
 
 </div>
 
@@ -628,4 +744,4 @@ May 26, 2026\]</span>
     this doesn’t account for memory usage at all–if you have 8n memory
     but send out n tasks which each use “2” memory, you will probably
     run out of memory (see
-    <a href="#sec-memory" class="quarto-xref">Section 7</a>).
+    <a href="#sec-memory" class="quarto-xref">Section 1.2</a>).

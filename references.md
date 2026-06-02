@@ -3,6 +3,8 @@
 
 <!-- TODO: summaries -->
 
+<!-- TODO: read and add to biblio/summarize -->
+
 https://cran.r-project.org/web/views/HighPerformanceComputing.html
 
 https://wlandau.github.io/crew/
@@ -75,9 +77,19 @@ tools*. 2026. Available: <https://tune.tidymodels.org/></span>
 
 </div>
 
-<div id="ref-purrr-1.1.0" class="csl-entry">
+<div id="ref-touchstone" class="csl-entry">
 
 <span class="csl-left-margin">\[8\]
+</span><span class="csl-right-inline">L. Walthert and J. Wujciak-Jens,
+*Touchstone: Continuous benchmarking with statistical confidence based
+on ’git’ branches*. 2026. Available:
+<https://github.com/lorenzwalthert/touchstone></span>
+
+</div>
+
+<div id="ref-purrr-1.1.0" class="csl-entry">
+
+<span class="csl-left-margin">\[9\]
 </span><span class="csl-right-inline">D. V. Charlie Gao Hadley Wickham
 and L. Henry, “Parallel processing in purrr 1.1.0,” July 10, 2025.
 Available:
@@ -87,7 +99,7 @@ Available:
 
 <div id="ref-advr" class="csl-entry">
 
-<span class="csl-left-margin">\[9\]
+<span class="csl-left-margin">\[10\]
 </span><span class="csl-right-inline">H. Wickham, *Advanced r*, 2nd ed.
 Chapman; Hall/CRC, 2019. doi:
 [10.1201/9781351201315](https://doi.org/10.1201/9781351201315).
@@ -97,7 +109,7 @@ Available: <https://adv-r.hadley.nz/></span>
 
 <div id="ref-bench" class="csl-entry">
 
-<span class="csl-left-margin">\[10\]
+<span class="csl-left-margin">\[11\]
 </span><span class="csl-right-inline">J. Hester and D. Vaughan, *Bench:
 High precision timing of r expressions*. 2025. Available:
 <https://bench.r-lib.org/></span>
@@ -106,7 +118,7 @@ High precision timing of r expressions*. 2025. Available:
 
 <div id="ref-PSIS" class="csl-entry">
 
-<span class="csl-left-margin">\[11\]
+<span class="csl-left-margin">\[12\]
 </span><span class="csl-right-inline">A. Vehtari, D. Simpson, A. Gelman,
 Y. Yao, and J. Gabry, “Pareto smoothed importance sampling,” *Journal of
 Machine Learning Research*, vol. 25, no. 72, pp. 1–58, 2024, Available:
@@ -116,7 +128,7 @@ Machine Learning Research*, vol. 25, no. 72, pp. 1–58, 2024, Available:
 
 <div id="ref-amdahl" class="csl-entry">
 
-<span class="csl-left-margin">\[12\]
+<span class="csl-left-margin">\[13\]
 </span><span class="csl-right-inline">G. M. Amdahl, “Validity of the
 single processor approach to achieving large scale computing
 capabilities,” in *Proceedings of the april 18-20, 1967, spring joint
@@ -129,7 +141,7 @@ Available: <https://doi.org/10.1145/1465482.1465560></span>
 
 <div id="ref-crew" class="csl-entry">
 
-<span class="csl-left-margin">\[13\]
+<span class="csl-left-margin">\[14\]
 </span><span class="csl-right-inline">W. M. Landau, *Crew: A distributed
 worker launcher framework*. 2026. Available:
 <https://wlandau.github.io/crew/></span>
