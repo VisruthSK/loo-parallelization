@@ -12,10 +12,13 @@ of doc uses it.
 
 ### `mirai`
 
-The parallelization package we are using is \[1\], self described as a
-“Minimalist Async Evaluation Framework for R”. Before we briefly
-describe how `mirai` works at a high level, it is useful to mention some
-of its benefits which led us to select it as our parallel backend.
+The parallelization package we are using is `mirai` \[1\], self
+described as a “Minimalist Async Evaluation Framework for R”. Before we
+briefly describe how `mirai` works at a high level, it is useful to
+mention some of its benefits which led us to select it as our parallel
+backend.
+
+#### Why `mirai`?
 
 `mirai` very naturally allows for heterogenous compute through a clean
 API. What this means in practice is that, once we migrate to `mirai`,
@@ -30,8 +33,9 @@ hassle.
 
 `mirai` is also [widely
 used](https://mirai.r-lib.org/index.html#across-the-r-stack) across
-major R packages–for example, recently landing in `purrr` \[2\], \[3\]
-([`in_parallel()`](https://purrr.tidyverse.org/reference/in_parallel.html#references)).
+major R packages–for example, recently landing in `purrr` (\[2\], \[3\],
+see
+[`in_parallel()`](https://purrr.tidyverse.org/reference/in_parallel.html#references)).
 `mirai` is also “the first official alternative communications backend
 for base R’s `parallel` package.” \[1\], and is used in other major
 packages like `shiny` (\[1\], see [the
@@ -39,7 +43,11 @@ vignette](https://mirai.r-lib.org/articles/shiny.html)), and in `tune`,
 which is a vital part of the `tidymodels` workflow (\[4\], see [the
 vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
 
-<!-- TODO: more on mirai internals, NNG and all that -->
+#### How does `mirai` work?
+
+<!-- TODO -->
+
+More on mirai internals, NNG and all that
 
 #### Serialization
 
@@ -49,6 +57,14 @@ What it is, how its used, how it is related to `mori`, why we can’t use
 for model methods. Experiment proving we can’t use for model methods.
 
 #### RNG
+
+One thing worth discussing for a moment is random number generation in
+`mirai`, which uses the L’Ecuyer PRNG. The details around RNG in `mirai`
+are pretty straightforward, as we can see through a few very simple
+examples.
+
+Firstly, even if we set the same seed, we won’t get the same results
+from `lapply()` and `mirai_map()`.
 
 ``` r
 set.seed(0)
@@ -68,58 +84,82 @@ lapply(1:4, rexp)
     [1] 0.5396828 0.9565675 0.1470460 1.3907351
 
 ``` r
+set.seed(0)
 mirai::daemons(4)
 mirai::mirai_map(1:4, rexp)[]
 ```
 
     [[1]]
-    [1] 1.698574
+    [1] 0.8086959
 
     [[2]]
-    [1] 0.14120324 0.08048577
+    [1] 0.6304609 0.2852141
 
     [[3]]
-    [1] 1.7027616 0.7999829 1.6198246
+    [1] 0.8505149 0.2523770 0.7789137
 
     [[4]]
-    [1] 0.5464926 2.4016744 0.7158378 2.4889851
+    [1] 1.6033540 0.7051893 0.2494851 0.6181817
 
 ``` r
 mirai::daemons(0)
 ```
 
-Note that base R’s `set.seed()` has no effect on `mirai` \[1\]. Further,
-note that by default if `daemons()` is called without any arguments, the
-RNG streams aren’t reproducible (just like results in serial execution
-without setting a seed). We can see that running `rexp()` again will get
-different results:
+Note that by default if `daemons()` is called without setting a seed,
+the RNG streams aren’t reproducible (just like results in serial
+execution without setting a seed)–ensuring “statistical validity but not
+numerical reproducibility between runs” \[5\]. If we rerun the exact
+same `mirai` code, we do get the same results:
 
 ``` r
+set.seed(0)
 mirai::daemons(4)
 mirai::mirai_map(1:4, rexp)[]
 ```
 
     [[1]]
-    [1] 2.205043
+    [1] 0.8086959
 
     [[2]]
-    [1] 1.0594451 0.5702792
+    [1] 0.6304609 0.2852141
 
     [[3]]
-    [1] 0.2033974 0.5963998 0.2977186
+    [1] 0.8505149 0.2523770 0.7789137
 
     [[4]]
-    [1] 0.3156730 0.9047978 1.3139224 1.6022024
+    [1] 1.6033540 0.7051893 0.2494851 0.6181817
 
 ``` r
 mirai::daemons(0)
 ```
 
-`mirai` uses L’Ecuyer PRNG, and even without an explicit seed `mirai`
-ensures “statistical validity but not numerical reproducibility between
-runs” \[5\]. Setting a seed manually when launching daemons gets
-reproducibility (stabilty over runs), “regardless of the number of
-daemons used.” \[5\].
+However, changing the number of daemons does not maintain the same
+results, which is obviously problematic:
+
+``` r
+set.seed(0)
+mirai::daemons(2)
+mirai::mirai_map(1:4, rexp)[]
+```
+
+    [[1]]
+    [1] 0.8086959
+
+    [[2]]
+    [1] 0.6304609 0.2852141
+
+    [[3]]
+    [1] 0.6358730 1.8042829 0.7560354
+
+    [[4]]
+    [1] 3.73047155 0.73100788 0.04516653 0.12108167
+
+``` r
+mirai::daemons(0)
+```
+
+Setting a seed manually when launching daemons gets reproducibility
+(stabilty over runs), “regardless of the number of daemons used.” \[5\].
 
 ``` r
 mirai::daemons(4, seed = 0)
@@ -141,7 +181,7 @@ mirai::mirai_map(1:4, rexp)[]
 ``` r
 mirai::daemons(0)
 
-mirai::daemons(4, seed = 0)
+mirai::daemons(2, seed = 0)
 mirai::mirai_map(1:4, rexp)[]
 ```
 
@@ -465,7 +505,7 @@ where each process takes time and needs its own core. Oversubscription
 is promising more parallelization than what the hardware can
 provide–note that parallelization usually has some fixed startup costs
 as well (see
-<a href="#sec-mirai-overhead" class="quarto-xref">Section 1.1.3</a>), so
+<a href="#sec-mirai-overhead" class="quarto-xref">Section 1.1.5</a>), so
 we would probably lose performance. In `loo` specifically, we must be
 careful when parallelizing functions to ensure we do not accidentally
 have nested parallelization.
@@ -626,7 +666,7 @@ sessioninfo::session_info(
      collate  English_United States.utf8
      ctype    English_United States.utf8
      tz       America/Los_Angeles
-     date     2026-06-01
+     date     2026-06-02
      pandoc   3.8.3 @ c:\\Program Files\\Positron\\resources\\app\\quarto\\bin\\tools/ (via rmarkdown)
      quarto   1.9.36 @ C:\\Users\\visru\\AppData\\Local\\Programs\\Quarto\\bin\\quarto.exe
 
