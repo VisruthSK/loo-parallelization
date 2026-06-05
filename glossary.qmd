@@ -1,0 +1,54 @@
+---
+title: Glossary
+format: 
+    html: default
+---
+
+## Concepts
+#### Serial
+Tasks run one at a time, strictly one after another with no overlap. Always implies synchronous execution.
+
+#### Synchronous
+The calling code blocks and waits for a result before continuing. Does not imply serial as tasks may run in parallel while the caller waits.
+Example: Parallel sampling across 4 chains but before we can continue, we have to wait until all 4 chains are finished.
+
+#### Asynchronous
+The calling code moves on immediately after dispatching a task and can check back later for results. Enables non-blocking workflows.
+
+#### Parallel
+Multiple tasks run at the same time across separate workers. Can be combined with either synchronous or asynchronous calling patterns. 
+Examples:
+
++ Synchronous parallel: running 4 chains in parallel but blocking until all are done.
++ Asynchronous parallel: dispatching multiple model fits to background processes. The main session fires off each model fit without blocking, so you could immediately dispatch the next model. Each background process then internally runs its 4 chains in parallel (sync). 
+
+#### Forking
+A child process is created by copying the parent R session at the OS level. The child inherits the full environment (packages, variables) via copy-on-write memory. Unix/macOS only.
+
+#### PSOCK cluster
+Worker processes started as completely fresh R sessions, communicating with the controller over sockets. No shared memory; packages and variables must be exported explicitly.
+
+#### Daemon
+A persistent background R process that stays alive between tasks, waiting to receive and execute work. Used by `mirai` as its worker model.
+
+#### Persistent workers
+A worker process that remains alive between tasks and across multiple calls, retaining its state and loaded packages. Avoids the startup cost of spawning a new process per job. Contrast with temporary workers (e.g. forked processes in `mclapply()`) that are created for a single call and exit when it finishes.
+
+## Functions
+#### `lapply()`
+Base R serial map. Applies a function to each element of a list sequentially in the host session. No workers, no overhead; considered as the baseline.
+
+#### `mclapply()` (Unix only)
+Parallel map via forking. Workers inherit the session environment automatically. Falls back to `lapply()` (i.e., serial execution) on Windows.
+
+#### `parLapply()` (all OS)
+Parallel map over a PSOCK cluster. Requires explicit setup (`makeCluster`), export of variables, and teardown (`stopCluster`). Workers persist until stopped.
+
+#### `daemons()`
+Launches $n$ persistent background workers for the current `mirai` session. Workers stay alive and idle until reassigned or the session ends.
+
+#### `mirai_map()`
+Parallel async map that dispatches tasks to daemons. Returns a list of unresolved mirai objects immediately. Append `[]` to block and collect all results.
+
+#### `[]`
+The collect operator on a mirai result. Blocks the main session until all dispatched tasks are complete and returns their values. Makes an async call synchronous.

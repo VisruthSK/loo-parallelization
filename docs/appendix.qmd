@@ -1,0 +1,85 @@
+## `b3`: Bayesian Branch Benchmarking
+
+What follows is a proposal for `b3`, a benchmarking tool designed to replace `touchstone` in Stan R packages and is far more flexible and broader in scope. `b3` is included here in the appendix as it could potentially improve our PR-level performance benchmarking, both for time and memory usage.
+
+---
+
+`b3` aims to measure language-agnostic end-to-end branch-vs-baseline performance diffs. `b3`'s philosophy is akin to touchstone @touchstone, but shucks the R focus--`b3` handles orchestration, measurement, and reporting, while users must provide their project runtime, dependency setup, and benchmark command. `b3` compares complete repository states: if the candidate branch changes the benchmark, data, config, or dependencies, that change is part of the measured result.
+
+### Core
+
+`b3` is one prebuilt native binary.
+
+Users only set up their project runtime and declare their benchmarks.
+
+R users set up R.
+Node users set up Node.
+Rust users set up Rust.
+Python users set up Python.
+
+Setup and benchmark commands are opaque subprocesses specified by the user which `b3` simply executes. On Unix they may be Bash; on Windows they may be PowerShell; for R projects they may be `Rscript` directly.
+
+`b3` handles:
+
+git worktrees
+runtime preset environment variables
+optional setup commands
+paired randomized benchmark runs
+timing
+process-tree peak memory polling
+Bayesian bootstrap posterior summaries
+
+### Evaluation Environment
+
+Similar to `touchstone`, `b3` separates environment isolation from dependency caching. Each variant gets its own environment inside its worktree, so baseline and candidate can resolve different dependency graphs safely. Download caches are shared across variants and CI runs, so unchanged packages do not need to be downloaded or rebuilt repeatedly. Of course, `b3` does not resolve dependencies itself--it exposes runtime presets that configure standard env/cache locations, then runs the user’s setup command. Users can always opt into specifying everything manually. Regardless, dependency resolution remains the responsibility of the project’s normal tooling: `rv`, `renv`, `pak`, `uv`, `npm`, `cargo`, etc. 
+
+`b3` can optionally run a cleanup command before each measured run. By default, dependency environments are reused across runs, but benchmark-created state is the user’s responsibility. Benchmarks should either avoid persistent side effects which impact performance, or configure cleanup so each measured run starts from a comparable state.
+
+### Measurement
+
+`b3` can run one or more named benchmarks. Each benchmark gets its own paired randomized baseline/candidate runs and its own posterior summaries for time and memory usage. For each paired block, randomize order: baseline then candidate, or candidate then baseline. Each command runs from its own worktree.
+
+`b3` records: 
+
+elapsed_sec
+average_memory_bytes
+peak_memory_bytes
+exit_status
+
+Runs with non-zero exit status are reported separately and excluded from posterior summaries unless explicitly configured otherwise. Note that memory measurement is best-effort and potentially platform-dependent. Short-lived spikes, detached subprocesses, permission boundaries, and OS-specific memory accounting may affect the reported value. Limitations/scope will be made abundantly clear in the API.
+
+### Analysis
+
+For each metric, B3 computes paired log ratios:
+
+$$
+d_i = log(candidate_i / baseline_i)
+$$
+
+B3 uses a Bayesian bootstrap over paired blocks: each posterior draw samples Dirichlet weights over blocks, computes the weighted mean of the paired log ratios. B3 also employs mild shrinkage toward 0 (which can be disabled).
+
+B3 reports:
+
+median candidate/baseline ratio
+median percent change
+credible intervals
+P(candidate worse)
+P(candidate >1%, >5%, >10%, >20% worse)
+
+B3 also reports order-stratified posterior summaries for baseline-first and candidate-first paired blocks. If the order-stratified effects disagree materially, this _may_ mean that the results are unstable and that the number of runs should be increased. The benchmarks/commands may be suspect as well. In the future, B3 might expand to a more complex model which can better capture order effects.
+
+### Misc.
+
+`b3` will also help scaffold GHA workflows to quickstart using `b3` for PR-level performance reports. Extensions to the project include a more complex model, wrappers around the core CLI in various host languages to facilitate usage, first-class support for standing up non-GHA CI/CD workflows, and so on.
+
+## Session Info
+
+```{r}
+#| label: session-info
+#| cache: false
+sessioninfo::session_info(
+  pkgs = c("loo", "mirai", "bench", "purrr", "sessioninfo"),
+  info = c("platform", "packages"),
+  dependencies = FALSE
+)
+```
