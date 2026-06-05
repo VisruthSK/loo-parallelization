@@ -5,75 +5,70 @@ format:
     toc: true
     toc-depth: 3
 bibliography: references.bib
-csl: ieee-with-url.csl
 ---
 
-::: {.callout-note}
-
+::: callout-note
 ## Guiding questions
 
-+ Q1: What is the effect of using mirai for serial execution (@sec-q1-mirai-serial)? 
-+ Q2: Can we use `mori` for sharing model methods (@sec-q2-mori-model-methods)? 
-+ Q3: Where is parallelization currently in use in loo (@sec-q3-parallelization-loo)?
-+ Q4: Where could we benefit from introducing parallelization in loo (@sec-q4-parallelization-benefit)?
-+ Q5: Where do we currently find nested parallelization in loo (@sec-q5-nested-parallelization-loo)?
-
+- Q1: What is the effect of using mirai for serial execution (@sec-q1-mirai-serial)?
+- Q2: Can we use `mori` for sharing model methods (@sec-q2-mori-model-methods)?
+- Q3: Where is parallelization currently in use in loo (@sec-q3-parallelization-loo)?
+- Q4: Where could we benefit from introducing parallelization in loo (@sec-q4-parallelization-benefit)?
+- Q5: Where do we currently find nested parallelization in loo (@sec-q5-nested-parallelization-loo)?
 :::
 
-# Background 
+# Background
 
 <!-- TODO -->
 
-> Flo:
-> Probably here just super short the content of the GSoC project and a short
-> outline (can also be added later). No need to go too much into the 
-> background (e.g., what is parallelisation).
+> Flo: Probably here just super short the content of the GSoC project and a short outline (can also be added later). No need to go too much into the background (e.g., what is parallelization).
 
-# Approaches to parallelisation {#sec-approaches-to-parallelisation}
+Please refer to @sec-appendix for a glossary of some important terms.
 
-> Flo:
-> This is kinda "state of the art" section
-> I think a short explanation of special terms is helpful to understand the
-> differences in diverse approaches (e.g., serial execution, forking, 
-> synchronous, asynchronous etc.)
-> I started with a `glossary.qmd` that we could use to collect and define
-> these terms.
+Currently `loo` relies on the `parallel` package from base R @R to parallelize certain computations, such as moment matching, Pareto smoothed importance sampling @PSIS, and more. This works well on Unix systems, where `parallel` can use forking, but Windows requires a separate, socket based path. This project will replace `loo`'s current parallelization structure, swapping to a platform-agnostic approach using `mirai` @mirai. This will have the added benefit of allowing users to parallelize execution over heterogenous compute resources (e.g., over local cores, a distributed systems, GPUs, or any mixture). This freedom decouples execution profiles from `loo`'s software, allowing users with varying compute needs to exploit their available resources without any extra work. Further, a major part of the project here would be writing strong documentation which teaches users how to make use of some common resources such as SLURM or SSH access to users, building off of the documentation in packages like `mirai`, but with a focus on applications to `loo`.
+
+<!-- TODO outline -->
+
+# Approaches to parallelization {#sec-approaches-to-parallelization}
 
 Currently, parallelization in loo goes through [paths 1-3](https://github.com/stan-dev/loo/blob/05a6bd20af83c919ba7a5572e3e0a50426c17a77/R/importance_sampling.R#L206) @loo:
 
-1. Serial execution using `lapply()`
-  + run one task after the other
-  + no parallelization; synchronous
-2. Forking through `parallel::mclapply()`
-  + create child processes as a copy of the parent's memory that run in parallel, but the main R session blocks and waits for all of them to finish before returning the result list
-  + parallel, synchronous
-  + not available in Windows: falls back to `lapply()`
-3. Fresh processes through `parallel::parLapply()`
-  + start worker processes as completely fresh R sessions, communicating with the controller over sockets. No shared memory which is in contrast to forking.
-  + parallel, synchronous
-4. Parallelisation with `mirai_map()` (**new**)
-  + dispatch tasks to persistent background R processes (daemons) over NNG sockets; workers stay alive between calls and are reused across tasks
-  + allows for asynchronous parallelisation with persistent workers
+1.  Serial execution using `lapply()`
+
+- run one task after the other
+- no parallelization; synchronous
+
+2.  Forking through `parallel::mclapply()`
+
+- create child processes as a copy of the parent's memory that run in parallel, but the main R session blocks and waits for all of them to finish before returning the result list
+- parallel, synchronous
+- not available in Windows: falls back to `lapply()`
+
+3.  Fresh processes through `parallel::parLapply()`
+
+- start worker processes as completely fresh R sessions, communicating with the controller over sockets. No shared memory which is in contrast to forking.
+- parallel, synchronous
+
+4.  Parallelization with `mirai_map()` (**new**)
+
+- dispatch tasks to persistent background R processes (daemons) over NNG sockets; workers stay alive between calls and are reused across tasks
+- allows for asynchronous parallelization with persistent workers
 
 **Comparison between approaches**
 
-| | `lapply()` | `mclapply()` | `parLapply()` | `mirai_map()[]` | `mirai_map()` |
-|---|---|---|---|---|---|
-| Parallel | no | yes | yes | yes | yes |
-| Synchronous | yes | yes | yes | yes | no |
-| Asynchronous | no | no | no | no | yes |
-| Mechanism | host session | fork | PSOCK socket | NNG daemon | NNG daemon |
-| Shared memory | n/a | yes | no | no | no |
-| Windows | yes | no | yes | yes | yes |
-| Persistent workers | no | no | yes | yes | yes |
-| Export data | no | no | yes | yes | yes |
-| Setup needed | none | none | `makeCluster` | `daemons()` | `daemons()` |
+|   | `lapply()` | `mclapply()` | `parLapply()` | `mirai_map()` |
+|---------------|---------------|---------------|---------------|---------------|
+| Parallel | no | yes | yes | yes |
+| Blocking | yes | yes | yes | yes (with `[]`) |
+| Mechanism | in-process | forking | cluster (often PSOCK sockets) | NNG daemons |
+| Shared memory | N/A | yes (copy-on-write) | no | no |
+| Windows | yes | no | yes | yes |
+| Persistent workers | no | no | yes | yes |
+| Remote Execution | no | no | yes | yes |
+| Export data | no | no | yes | yes |
+| Setup needed | none | none | `makeCluster` | `daemons()` |
 
-Thus, `mirai` works for all OS and allows for asynchronous parallelisation.
-Only caveat, it does not provide a possibility for shared memory (but for this `mori` has been developed that complements `mirai` for solving this issue (see Section )).
-
-> Flo:
-> I think now the motivation becomes clearer, why we are interested in mirai
+Thus, `mirai` works for all OS and allows for asynchronous parallelization. The only major downside of `mirai` is that it does not provide a possibility for workers to share memory (however, when using `mirai` with only local daemons, one can use `mori`(see @sec-mori) @mori).
 
 # Introducing `mirai` for parallelization in `loo`
 
@@ -84,27 +79,20 @@ The parallelization package we are using is `mirai` @mirai, self described as a 
 `mirai` is also [widely used](https://mirai.r-lib.org/index.html#across-the-r-stack) across major R packages--for example, recently landing in `purrr` ([@purrr-1.1.0; @purrr], see [`in_parallel()`](https://purrr.tidyverse.org/reference/in_parallel.html#references)). `mirai` is also "the first official alternative communications backend for base R’s `parallel` package." @mirai, and is used in other major packages like `shiny` (@mirai, see [the vignette](https://mirai.r-lib.org/articles/shiny.html)), and in `tune`, which is a vital part of the `tidymodels` workflow (@tune, see [the vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
 
 ## How does `mirai` work?
+
 <!-- TODO -->
 
-More on mirai internals, NNG and all that 
+More on mirai internals, NNG and all that
 
 ### Reproducibility with `mirai`
 
-One thing worth discussing for a moment is random number generation in `mirai`, which uses the L'Ecuyer PRNG. The details around RNG in `mirai` are pretty straightforward, as we can see through a few very simple examples. 
+One thing worth discussing for a moment is random number generation in `mirai`, which uses the L'Ecuyer PRNG. The details around RNG in `mirai` are pretty straightforward, as we can see through a few very simple examples.
 
 Firstly, even if we set the same seed, we won't get the same results from `lapply()` and `mirai_map()`.
 
-> Flo:
-> Explanation of what the mirai code is doing would help to understand the
-> behavior. When I understand it correctly then `daemons(4)` starts 4
-> background worker processes (cf. daemons). `mirai_map(1:4, rexp)` dispatches 4 
-> tasks (`rexp(1), rexp(2), rexp(3), rexp(4)`) to the 4 daemons. The `[]`
-> blocks the main R session until all 4 tasks have completed, then returns a 
-> list containing all the results. Finally, `mirai::daemons(0)` shuts down and 
-> resets all mirai daemons for the current compute profile.
+> Flo: Explanation of what the mirai code is doing would help to understand the behavior. When I understand it correctly then `daemons(4)` starts 4 background worker processes (cf. daemons). `mirai_map(1:4, rexp)` dispatches 4 tasks (`rexp(1), rexp(2), rexp(3), rexp(4)`) to the 4 daemons. The `[]` blocks the main R session until all 4 tasks have completed, then returns a list containing all the results. Finally, `mirai::daemons(0)` shuts down and resets all mirai daemons for the current compute profile.
 >
-> Regarding seed: setting the seed via `set.seed(0)` will set the RNG seed in 
-> the host R sessions, but **not** in each daemon.
+> Regarding seed: setting the seed via `set.seed(0)` will set the RNG seed in the host R sessions, but **not** in each daemon.
 
 ```{r}
 set.seed(0)
@@ -127,14 +115,9 @@ mirai::daemons(0)
 
 However, changing the number of daemons does not maintain the same results, which is obviously problematic:
 
-> Flo:
-> Here the number of daemons is reduced to 2, thus 2 R sessions are started.
-> The first 2 tasks (`rexp(1), ...`) are dispatched to the 2 daemons and 
-> whenever a daemon finishes the task the next task is allocated to it. 
+> Flo: Here the number of daemons is reduced to 2, thus 2 R sessions are started. The first 2 tasks (`rexp(1), ...`) are dispatched to the 2 daemons and whenever a daemon finishes the task the next task is allocated to it.
 >
-> Regarding seed:
-> As the seed is related to the session, only the first two sessions produce
-> the same results as above.
+> Regarding seed: As the seed is related to the session, only the first two sessions produce the same results as above.
 
 ```{r}
 set.seed(0)
@@ -143,12 +126,9 @@ str(mirai::mirai_map(1:4, rexp)[])
 mirai::daemons(0)
 ```
 
-Setting a seed manually when launching daemons gets reproducibility (stabilty over runs), "regardless of the number of daemons used." @mirai-2.5.0.
+Setting a seed manually when launching daemons gets reproducibility (stability over runs), "regardless of the number of daemons used." @mirai-2.5.0.
 
-> Flo:
-> Instead of setting seed for the host session, we can set a seed for the 
-> daemons explicitly, which initializes a stream per mirai task (instead of
-> host session) 
+> Flo: Instead of setting seed for the host session, we can set a seed for the daemons explicitly, which initializes a stream per mirai task (instead of host session)
 
 ```{r}
 mirai::daemons(4, seed = 0)
@@ -164,7 +144,7 @@ In essence, reproducibility is the users' responsibility, akin to compute setups
 
 ## Q1: Can we use `mirai` for serial execution? {#sec-q1-mirai-serial}
 
-Since `mirai` @mirai neatly subsumes paths 2 and 3, a question we had was what would the performance hit be if we also removed 1--that is, if a user requested serial execution, what do we lose by using `mirai` with a single core. 
+Since `mirai` @mirai neatly subsumes paths 2 and 3, a question we had was what would the performance hit be if we also removed 1--that is, if a user requested serial execution, what do we lose by using `mirai` with a single core.
 
 ```{r}
 #| label: all-equal-helper
@@ -224,7 +204,7 @@ results |> summary(relative = TRUE)
 
 NB: the `mem_alloc` column should not be interpreted as total memory usage for `mirai`: `bench::mark()` records R heap allocations via `utils::Rprofmem()`, which is not able to track daemons' memory usage [@bench; @R; @mirai].
 
-`mirai_map()` with a single daemon has a median runtime of ~26ms, roughly 2.5x slower than the fastest in-process approach. Of course, in absolute terms the difference is negligible, adding only about 15ms. The memory usage of all in-process approaches are relatively close to one another. `vapply()`'s small memory overhead may probably be attributed to the extra work it does validating types and lengths and such @R.
+`mirai_map()` with a single daemon has a median runtime of \~26ms, roughly 2.5x slower than the fastest in-process approach. Of course, in absolute terms the difference is negligible, adding only about 15ms. The memory usage of all in-process approaches are relatively close to one another. `vapply()`'s small memory overhead may probably be attributed to the extra work it does validating types and lengths and such @R.
 
 In short, it is probably a good idea to directly test the effects of serial `mirai` execution in `loo`, but it is likely that we will find that we should keep the unique single core execution path.
 
@@ -234,9 +214,9 @@ In short, it is probably a good idea to directly test the effects of serial `mir
 
 ## Memory usage and `loo` (Why does it matter?)
 
-Parallelization may lead to running out of memory (OOM). Copying the construction from that note: if you have, say, 8GB memory but spin up 16 tasks which each use 1GB, you will run out of memory. The math here is quite clear, though it is worst case and is complicated by the profile of the program--if that 1GB is peak usage and it normally doesn't go so high, and the peaks don't overlap, then it is possible for you to squeeze past without 16 gigs free. Note, however, that this 1GB usage per parallel worker is assuming that there is no memory that can be shared. 
+Parallelization may lead to running out of memory (OOM). Copying the construction from that note: if you have, say, 8GB memory but spin up 16 tasks which each use 1GB, you will run out of memory. The math here is quite clear, though it is worst case and is complicated by the profile of the program--if that 1GB is peak usage and it normally doesn't go so high, and the peaks don't overlap, then it is possible for you to squeeze past without 16 gigs free. Note, however, that this 1GB usage per parallel worker is assuming that there is no memory that can be shared.
 
-## Shared memory & the potential of `mori`
+## Shared memory & the potential of `mori` {#sec-mori}
 
 `mirai` by itself does not allow for shared memory. However, [`mori`](https://shikokuchuo.net/mori/) is a recently released R package that allows for sharing memory across workers by placing an R object once into OS-level shared memory and letting every process on the machine read the same physical pages directly, with no data copying between processes @moripost.
 
@@ -252,36 +232,29 @@ Since OOM is a slightly tricky thing to think about, one user friendly feature w
 
 <!-- TODO -->
 
-* `function()`
-    * short description
-* `function()`
-    * short description
+- `function()`
+  - short description
+- `function()`
+  - short description
 
 # Q4: Where could we benefit from introducing parallelization in `loo`? {#sec-q4-parallelization-benefit}
 
 To investigate this question we use two approaches:
 
-1) Inspecting the code base and figuring out at which points parallelization might be helpful ("analytic search")
-2) Running performance tests on the loo pipeline, investigating where the bottlenecks are, and finding out whether we can improve things with parallelization.
+1)  Inspecting the code base and figuring out at which points parallelization might be helpful ("analytic search")
+2)  Running performance tests on the loo pipeline, investigating where the bottlenecks are, and finding out whether we can improve things with parallelization.
 
 There are some functions in loo which could benefit from parallelization, potentially to great effect, as these functions appear to do "embarrassingly parallel" work--meaning that they do independent tasks which seem amenable to speedups by executing those tasks concurrently. These as prime targets for parallelization and somewhat easily identified, we do so by inspection, as covered in the next section.
 
 ## Analytic search
 
 <!-- TODO -->
-For each function/place in code where you think parallelization might help, do:
-* Introduction
-    * short description of function
-    * why do you think that parallelization can improve things?
-* Experiment: 
-    * implement parallelization
-    * record time (define which time you are using) for parallel and unparallel version
-    *  report results (how much speed up we can get?)
-*  Short conclusion
+
+For each function/place in code where you think parallelization might help, do: \* Introduction \* short description of function \* why do you think that parallelization can improve things? \* Experiment: \* implement parallelization \* record time (define which time you are using) for parallel and unparallel version \* report results (how much speed up we can get?) \* Short conclusion
 
 We can see in [`elpd_loo_approximation()`](https://github.com/stan-dev/loo/blob/master/R/loo_subsample.R#L539) that we don't push `cores` through to `loo.function()` so right now, this function only parallelizes if users set the `mc.cores` options as `loo.function()` will pick this up when its called without specifying `cores`. This is a super simple fix and could speed up some code, depending on how users tend to set their `cores`.
 
-[Later on](https://github.com/stan-dev/loo/blob/master/R/loo_subsample.R#L587) in the same function, we can see that parallelization had been thought of but not implemented yet for the delta method approximations in that function (`waic_grad`, `waic_grad_marginal`, `waic_hess`). Each of these loop row-wise over data and shouldn't be too difficult to parallelize. More careful thought must go into determining if parallelization is even worth it, and more careful scrutiny of the callsites of `elpd_loo_approximation()` to ensure it doesn't accidentally induce nested parallelization (see @sec-nested-parallelization)--though at first blush this seems unlikely.
+[Later on](https://github.com/stan-dev/loo/blob/master/R/loo_subsample.R#L587) in the same function, we can see that parallelization had been thought of but not implemented yet for the delta method approximations in that function (`waic_grad`, `waic_grad_marginal`, `waic_hess`). Each of these loop row-wise over data and shouldn't be too difficult to parallelize. More careful thought must go into determining if parallelization is even worth it, and more careful scrutiny of the call sites of `elpd_loo_approximation()` to ensure it doesn't accidentally induce nested parallelization (see @sec-nested-parallelization)--though at first blush this seems unlikely.
 
 In [`waic.function()`](https://github.com/stan-dev/loo/blob/master/R/waic.R#L109) `loo` simply doesn't parallelize the work, relying only on a base `lapply()`. This seems like a pretty easy fix, and there doesn't seem to be any reason to not use parallelization. Again, should be careful and benchmark to ensure we aren't accidentally eating performance or RAM, but this could be a large, free win.
 
@@ -291,25 +264,23 @@ Lastly, in [`ap_psis.array()`](https://github.com/stan-dev/loo/blob/master/R/psi
 
 <!-- TODO: profiling -->
 
-* short description of approach for running performance test
-* run performance test
-* report results
-* identify bottlenecks
-* provide first ideas whether any of the identified bottlenecks can benefit from parallelization
+- short description of approach for running performance test
+- run performance test
+- report results
+- identify bottlenecks
+- provide first ideas whether any of the identified bottlenecks can benefit from parallelization
 
 ## Vectorization
 
-When browsing the codebase to find places where parallelization could be helpful (see @sec-q4-parallelization-benefit), we found two potential speedups--in these places, we may be able to benefit from _vectorizing_ functions instead of parallelizing a loop. Vectorization is advantageous in these spots as we would be rewriting R loops as optimized matrix operations [@advr, secs. 24.5-24.7].
+When browsing the codebase to find places where parallelization could be helpful (see @sec-q4-parallelization-benefit), we found two potential speedups--in these places, we may be able to benefit from *vectorizing* functions instead of parallelizing a loop. Vectorization is advantageous in these spots as we would be rewriting R loops as optimized matrix operations [@advr, secs. 24.5-24.7].
 
 > Matrix algebra is a general example of vectorisation. There loops are executed by highly tuned external libraries like BLAS. If you can figure out a way to use matrix algebra to solve your problem, you’ll often get a very fast solution.
 
 Of course, for these potential improvements, we should first write tests for correctness, then write benchmarks in the PR.
 
-The more important of the two is in [`pseudobma_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L334), when performing a Bayesian bootstrap. This function is the backend for `loo_model_weights()`, and is used to average models using psuedo-Bayesian model averaging, optionally using a Bayesian bootstrap (which is referred to as psudo-BMA+). This pseudo-BMA+ path is the one we care about as it has the elidable loop. We currently loop over Bayesian bootstrap iterations where it seems quite plausible to swap to matrix operations. This could potentially be a large speedup as the loop is large, being of length `BB_n`, which defaults to 1,000 replications. There don't appear to be any reallocations in the loop, so the speedup will probably be dominated by the efficiency of matrix ops [@advr, secs. 5.3.1, 24.6]. This is tracked in #XXX.
-<!-- TODO: PR -->
+The more important of the two is in [`pseudobma_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L334), when performing a Bayesian bootstrap. This function is the backend for `loo_model_weights()`, and is used to average models using psuedo-Bayesian model averaging, optionally using a Bayesian bootstrap (which is referred to as psudo-BMA+). This pseudo-BMA+ path is the one we care about as it has the elidable loop. We currently loop over Bayesian bootstrap iterations where it seems quite plausible to swap to matrix operations. This could potentially be a large speedup as the loop is large, being of length `BB_n`, which defaults to 1,000 replications. There don't appear to be any reallocations in the loop, so the speedup will probably be dominated by the efficiency of matrix ops [@advr, secs. 5.3.1, 24.6]. This is tracked in #XXX. <!-- TODO: PR -->
 
-Similarly, though less interesting, is a gradient calculation in [`stacking_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L278), just above the previous function. `stacking_weights()` is similarly used for combining models using stacking, that is, fitting a linear model to weigh the contending models. The gradient function is used for solving for those weights. However, the speedup here is less interesting because we are looping over `K`, the number of models being compared, which is usually small. However, we may as well take the (potential) free performance. This is tracked in #XXX.
-<!-- TODO: PR -->
+Similarly, though less interesting, is a gradient calculation in [`stacking_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L278), just above the previous function. `stacking_weights()` is similarly used for combining models using stacking, that is, fitting a linear model to weigh the contending models. The gradient function is used for solving for those weights. However, the speedup here is less interesting because we are looping over `K`, the number of models being compared, which is usually small. However, we may as well take the (potential) free performance. This is tracked in #XXX. <!-- TODO: PR -->
 
 These two loops seem like low hanging fruit and well worth the time to implement.
 
@@ -317,7 +288,7 @@ These two loops seem like low hanging fruit and well worth the time to implement
 
 When updating `loo` we wish to avoid "nested parallelization", that is, attempting to compute something in parallel, when already in a parallel process. Take this nonfunctioning `mirai` code as an example:
 
-```r
+``` r
 # parallel over xs
 mirai_map(
   xs,
@@ -326,33 +297,33 @@ mirai_map(
 )
 ```
 
-We first are doing something parallely over values of `xs`, but then we try to work in parallel again for each value from `xs`! The main problem here is oversubscription: we spawn `n` outer workers, let say, then for each we spawn another `m` inner workers. In the package context though, this implementation would be far more complex, and would probably be hidden completely from users. This becomes a problem when a user sets `n`, the outer parallel workers, to # cores - 1[^1], as the actual number of parallel tasks could be as large as $n * m$. Oversubscription is bad because, in this context, we are mostly running CPU heavy tasks where each process takes time and needs its own core. Oversubscription is promising more parallelization than what the hardware can provide--note that parallelization usually has some fixed startup costs as well (see @sec-q1-mirai-serial), so we would probably lose performance. In `loo` specifically, we must be careful when parallelizing functions to ensure we do not accidentally have nested parallelization. 
+We first are doing something parallely over values of `xs`, but then we try to work in parallel again for each value from `xs`! The main problem here is oversubscription: we spawn `n` outer workers, let say, then for each we spawn another `m` inner workers. In the package context though, this implementation would be far more complex, and would probably be hidden completely from users. This becomes a problem when a user sets `n`, the outer parallel workers, to \# cores - 1[^1], as the actual number of parallel tasks could be as large as $n * m$. Oversubscription is bad because, in this context, we are mostly running CPU heavy tasks where each process takes time and needs its own core. Oversubscription is promising more parallelization than what the hardware can provide--note that parallelization usually has some fixed startup costs as well (see @sec-q1-mirai-serial), so we would probably lose performance. In `loo` specifically, we must be careful when parallelizing functions to ensure we do not accidentally have nested parallelization. Note that `mirai` exposes a function, [`on_daemon()`](https://mirai.r-lib.org/reference/on_daemon.html), which may be helpful to avoid nested parallelization @mirai. However, this only accounts for nested `mirai` runs, and not nested parallelization on the whole.
 
 <!-- TODO: update footnote numbers -->
 [^1]: This is a common heuristic for number of threads/daemons/workers/etc. to use because it leaves 1 core free to do normal computer things, lest the system become unresponsive. Note this doesn't account for memory usage at all--if you have 8GB memory but send out n tasks, each using 2GB, you may run out of memory (see @sec-memory).
 
 ## Q5: Where do we currently find nested parallelization in `loo`? {#sec-q5-nested-parallelization-loo}
+
 <!-- TODO -->
-* short description of function
-* do you see any challenges with the identified functions?
-* should nested parallelisation run parallel or sequential?
-    * provide experiments to stress your statement
+
+- short description of function
+- do you see any challenges with the identified functions?
+- should nested parallelization run parallel or sequential?
+  - provide experiments to stress your statement
 
 ## Potential problems with packages that make use of `loo` such that nested parallelization can occur?
 
 However, we know that other packages also call `loo` functions, which is another potential vector for nested parallelization. To this end, it seems like `brms` is the only (Stan) package where this could even be vaguely possible, but doing so seems to necessitate wilful parallelization not provided natively by `brms`. This merits further investigation, but it seems like we can (softly) table concerns regarding external nested parallelization for now.
 
 <!-- TODO -->
-Make a list of packages of which you have thought of:
-* package name
-* Any issues that you see?
-* (make a short note even if you don't see issues)
+
+Make a list of packages of which you have thought of: \* package name \* Any issues that you see? \* (make a short note even if you don't see issues)
 
 # References
 
 ::: {#refs}
 :::
 
-# Appendix {.unnumbered .unlisted}
+# Appendix {.unnumbered .unlisted} {#sec-appendix}
 
 {{< include appendix.qmd >}}
