@@ -5,6 +5,8 @@
 
 <!-- TODO: read and add to biblio/summarize -->
 
+https://stat.ethz.ch/R-manual/R-devel/library/parallel/doc/parallel.pdf
+
 https://cran.r-project.org/web/views/HighPerformanceComputing.html
 
 https://wlandau.github.io/crew/
@@ -153,6 +155,30 @@ Available: <https://doi.org/10.1145/1465482.1465560></span>
 </span><span class="csl-right-inline">W. M. Landau, *Crew: A distributed
 worker launcher framework*. 2026. Available:
 <https://wlandau.github.io/crew/></span>
+
+</div>
+
+<div id="ref-pacheco" class="csl-entry">
+
+<span class="csl-left-margin">\[16\]
+</span><span class="csl-right-inline">P. Pacheco and M. Malensek, *An
+introduction to parallel programming*. Elsevier, 2022. doi:
+[10.1016/B978-0-12-804605-0.00002-6](https://doi.org/10.1016/B978-0-12-804605-0.00002-6).
+Available:
+<https://linkinghub.elsevier.com/retrieve/pii/B9780128046050000026>.
+\[Accessed: June 02, 2026\]</span>
+
+</div>
+
+<div id="ref-parallelcomputing" class="csl-entry">
+
+<span class="csl-left-margin">\[17\]
+</span><span class="csl-right-inline">K. Asanovic *et al.*, “A view of
+the parallel computing landscape,” *Communications of the ACM*, vol. 52,
+no. 10, pp. 56–67, Oct. 2009, doi:
+[10.1145/1562764.1562783](https://doi.org/10.1145/1562764.1562783).
+Available: <https://dl.acm.org/doi/10.1145/1562764.1562783>. \[Accessed:
+June 01, 2026\]</span>
 
 </div>
 

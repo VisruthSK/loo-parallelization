@@ -9,11 +9,27 @@ format:
 
 <!-- TODO -->
 
-What is parallelization, why we would want it, differences between multiprocessing/multithreading, etc., broad overview of how to parallelize in R. Also at some point define terminology and ensure all of doc uses it.
+<!-- What is parallelization, why we would want it, differences between multiprocessing/multithreading, etc. Also at some point define terminology and ensure all of doc uses it. -->
+
+We open with a broad summary of what parallel computing is, why we want to parallelize, and some drawbacks/considerations. This section can be skipped if one is already familiar with these matters; more in-depth treatments of these topics can be found in the main references for this section [@pacheco; @amdahl; @parallelcomputing]. 
+
+Parallel programs are programs which are written to exploit hardware level parallelism @parallelcomputing. Spelled out, we are trying to take some chunk of work which would otherwise run one step at a time, split it into pieces, and run some of those pieces at the same time. This is useful when the work is large enough that the time saved by doing things concurrently is greater than the overhead we pay to set up and coordinate that concurrency; this is the basic point formalized by Amdahl’s law @amdahl. There are a few terms worth fixing now, since otherwise the rest of the report gets slightly muddy. A task is a unit of work we want done, a worker is something that does tasks, and a core is a hardware resource.
+
+<!-- TODO: sum example reference for auto make good use of them? -->
+We want to parallelize because hardware trends have made parallelism increasingly central to performance: modern machines expose multiple cores and other parallel resources, but serial programs do not (and generally cannot) automatically make good use of them @parallelcomputing. When a computation can be split into mostly independent pieces, parallelization lets us exploit the structure of modern hardware to reduce wall time. In `loo`, many of the places where we parallelize are "embarrassingly parallel"--that is, the work can be split up in a manner where tasks are independent and easy to compute concurrently @pacheco.
+
+<!-- TODO: review/rewrite -->
+It is also useful to distinguish multiprocessing from multithreading @pacheco. In multiprocessing, we run work in separate processes. These processes usually do not share memory by default, so objects may need to be copied or serialized before workers can use them @pacheco. In multithreading, multiple threads run inside the same process and share memory. This can avoid some copying, but shared memory also introduces its own problems around synchronization and thread safety @pacheco. In R package code, the user-facing parallelization we usually deal with is process based: for example, base R’s `parallel` package can use forking on Unix-like systems or socket clusters across platforms.
+
+It is important to note that parallelization is not free. We have to start workers, send them data, schedule work, collect results, and maybe serialize objects along the way. In the worst case, this means parallel code can be slower than serial code. This is especially plausible when tasks are small, when there are many objects to copy, or when the serial part of the computation is still large. Amdahl’s law captures this basic limitation--even with infinitely many workers, the non-parallel part of the program bounds the possible speedup @amdahl. So the relevant question is not merely whether a piece of code can be parallelized, but whether parallelizing it actually improves runtime or memory use.
+
+### Parallelization in R
+
+Broad overview/history of how to parallelize in R.
 
 ### `mirai`
 
-The parallelization package we are using is `mirai` @mirai, self described as a "Minimalist Async Evaluation Framework for R". Before we briefly describe how `mirai` works at a high level, it is useful to mention some of its benefits which led us to select it as our parallel backend.
+The parallelization package we are using is `mirai` @mirai, self described as a "Minimalist Async Evaluation Framework for R". In `mirai`, workers area called daemons. Before we briefly describe how `mirai` works at a high level, it is useful to mention some of its benefits which led us to select it as our parallel backend.
 
 #### Why `mirai`?
 
@@ -21,17 +37,19 @@ The parallelization package we are using is `mirai` @mirai, self described as a 
 
 `mirai` is also [widely used](https://mirai.r-lib.org/index.html#across-the-r-stack) across major R packages--for example, recently landing in `purrr` ([@purrr-1.1.0; @purrr], see [`in_parallel()`](https://purrr.tidyverse.org/reference/in_parallel.html#references)). `mirai` is also "the first official alternative communications backend for base R’s `parallel` package." @mirai, and is used in other major packages like `shiny` (@mirai, see [the vignette](https://mirai.r-lib.org/articles/shiny.html)), and in `tune`, which is a vital part of the `tidymodels` workflow (@tune, see [the vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
 
-
 #### How does `mirai` work?
-<!-- TODO -->
-
-More on mirai internals, NNG and all that 
-
-#### Serialization
 
 <!-- TODO -->
+High level overview of how `mirai` works.
 
-What it is, how its used, how it is related to `mori`, why we can't use for model methods. Experiment proving we can't use for model methods.
+<!-- TODO -->
+Link to appendix which goes more in depth on internals, NNG and all that 
+
+##### Serialization
+
+<!-- TODO -->
+
+High level: what it is, how its used, how it is related to `mori`, why we can't use for model methods. Link to appendix experiment proving we can't use for model methods.
 
 #### RNG
 
@@ -58,7 +76,7 @@ mirai::mirai_map(1:4, rexp)[]
 mirai::daemons(0)
 ```
 
-However, changing the number of daemons does not maintain the same results, which is obviously problematic:
+However, changing the number of daemons alters our results, which is obviously problematic:
 
 ```{r}
 set.seed(0)
@@ -67,7 +85,7 @@ mirai::mirai_map(1:4, rexp)[]
 mirai::daemons(0)
 ```
 
-Setting a seed manually when launching daemons gets reproducibility (stabilty over runs), "regardless of the number of daemons used." @mirai-2.5.0.
+Setting a seed manually when launching daemons gets reproducibility (stability over runs), "regardless of the number of daemons used." @mirai-2.5.0.
 
 ```{r}
 mirai::daemons(4, seed = 0)
@@ -163,10 +181,6 @@ Parallelization may lead to running out of memory (OOM). Copying the constructio
 
 Since OOM is a slightly tricky thing to think about, one user friendly feature we would like to implement, somewhat orthogonal to swapping to `mirai`, is having parallel functions check how much memory they need and warn users if a run might run out of memory. We could do this pretty simply by running our functions across varying input sizes and modelling peak memory usage (probably averaged over a few runs) as a function of the parameters. Of course, if we implement this we would need to test it to see how accurate and conservative our model is.
 
-### `mori` and model methods {#sec-mori-model-methods}
-
-<!-- TODO -->
-
 ## Where is parallelization currently in use?
 
 <!-- TODO -->
@@ -245,7 +259,7 @@ mirai_map(
 )
 ```
 
-We first are doing something parallely over values of `xs`, but then we try to work in parallel again for each value from `xs`! The main problem here is oversubscription: we spawn `n` outer workers, let say, then for each we spawn another `m` inner workers. In the package context though, this implementation would be far more complex, and would probably be hidden completely from users. This becomes a problem when a user sets `n`, the outer parallel workers, to # cores - 1[^1], as the actual number of parallel tasks could be as large as $n * m$. Oversubscription is bad because, in this context, we are mostly running CPU heavy tasks where each process takes time and needs its own core. Oversubscription is promising more parallelization than what the hardware can provide--note that parallelization usually has some fixed startup costs as well (see @sec-mirai-overhead), so we would probably lose performance. In `loo` specifically, we must be careful when parallelizing functions to ensure we do not accidentally have nested parallelization. 
+We first are doing something parallely over values of `xs`, but then we try to work in parallel again for each value from `xs`! The main problem here is oversubscription: we spawn `n` outer workers, let say, then for each we spawn another `m` inner workers. In the package context though, this implementation would be far more complex, and would probably be hidden completely from users. This becomes a problem when a user sets `n`, the outer parallel workers, to # cores - 1[^1], as the actual number of parallel tasks could be as large as $n * m$. Oversubscription is bad because, in this context, we are mostly running CPU heavy tasks where each process takes time and needs its own core. Oversubscription is promising more parallelization than what the hardware can provide--note that parallelization usually has some fixed startup costs as well (see @sec-mirai-overhead), so we would probably lose performance. In `loo` specifically, we must be careful when parallelizing functions to ensure we do not accidentally have nested parallelization. Note that `mirai` exposes a function, [`on_daemon()`](https://mirai.r-lib.org/reference/on_daemon.html), which may be helpful to avoid nested parallelization @mirai. However, note that this only accounts for nested `mirai` runs, and not nested parallelization on the whole.
 
 <!-- TODO: update footnote numbers -->
 [^1]: This is a common heuristic for number of threads/daemons/workers/etc. to use because it leaves 1 core free to do normal computer things, lest the system become unresponsive. Note this doesn't account for memory usage at all--if you have 8GB memory but send out n tasks, each using 2GB, you may run out of memory (see @sec-memory).
@@ -343,6 +357,10 @@ B3 also reports order-stratified posterior summaries for baseline-first and cand
 #### Misc.
 
 `b3` will also help scaffold GHA workflows to quickstart using `b3` for PR-level performance reports. Extensions to the project include a more complex model, wrappers around the core CLI in various host languages to facilitate usage, first-class support for standing up non-GHA CI/CD workflows, and so on.
+
+### `mori` and model methods {#sec-mori-model-methods}
+
+<!-- TODO -->
 
 ### Session Info
 

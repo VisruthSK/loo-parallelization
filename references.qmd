@@ -6,6 +6,7 @@ nocite: "@*"
 <!-- TODO: summaries -->
 
 <!-- TODO: read and add to biblio/summarize -->
+https://stat.ethz.ch/R-manual/R-devel/library/parallel/doc/parallel.pdf
 
 https://cran.r-project.org/web/views/HighPerformanceComputing.html
 

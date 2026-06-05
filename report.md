@@ -5,25 +5,80 @@
 
 <!-- TODO -->
 
-What is parallelization, why we would want it, differences between
-multiprocessing/multithreading, etc., broad overview of how to
-parallelize in R. Also at some point define terminology and ensure all
-of doc uses it.
+<!-- What is parallelization, why we would want it, differences between multiprocessing/multithreading, etc. Also at some point define terminology and ensure all of doc uses it. -->
+
+We open with a broad summary of what parallel computing is, why we want
+to parallelize, and some drawbacks/considerations. This section can be
+skipped if one is already familiar with these matters; more in-depth
+treatments of these topics can be found in the main references for this
+section \[1\], \[2\], \[3\].
+
+Parallel programs are programs which are written to exploit hardware
+level parallelism \[3\]. Spelled out, we are trying to take some chunk
+of work which would otherwise run one step at a time, split it into
+pieces, and run some of those pieces at the same time. This is useful
+when the work is large enough that the time saved by doing things
+concurrently is greater than the overhead we pay to set up and
+coordinate that concurrency; this is the basic point formalized by
+Amdahl’s law \[2\]. There are a few terms worth fixing now, since
+otherwise the rest of the report gets slightly muddy. A task is a unit
+of work we want done, a worker is something that does tasks, and a core
+is a hardware resource.
+
+<!-- TODO: sum example reference for auto make good use of them? -->
+
+We want to parallelize because hardware trends have made parallelism
+increasingly central to performance: modern machines expose multiple
+cores and other parallel resources, but serial programs do not (and
+generally cannot) automatically make good use of them \[3\]. When a
+computation can be split into mostly independent pieces, parallelization
+lets us exploit the structure of modern hardware to reduce wall time. In
+`loo`, many of the places where we parallelize are “embarrassingly
+parallel”–that is, the work can be split up in a manner where tasks are
+independent and easy to compute concurrently \[1\].
+
+<!-- TODO: review/rewrite -->
+
+It is also useful to distinguish multiprocessing from multithreading
+\[1\]. In multiprocessing, we run work in separate processes. These
+processes usually do not share memory by default, so objects may need to
+be copied or serialized before workers can use them \[1\]. In
+multithreading, multiple threads run inside the same process and share
+memory. This can avoid some copying, but shared memory also introduces
+its own problems around synchronization and thread safety \[1\]. In R
+package code, the user-facing parallelization we usually deal with is
+process based: for example, base R’s `parallel` package can use forking
+on Unix-like systems or socket clusters across platforms.
+
+It is important to note that parallelization is not free. We have to
+start workers, send them data, schedule work, collect results, and maybe
+serialize objects along the way. In the worst case, this means parallel
+code can be slower than serial code. This is especially plausible when
+tasks are small, when there are many objects to copy, or when the serial
+part of the computation is still large. Amdahl’s law captures this basic
+limitation–even with infinitely many workers, the non-parallel part of
+the program bounds the possible speedup \[2\]. So the relevant question
+is not merely whether a piece of code can be parallelized, but whether
+parallelizing it actually improves runtime or memory use.
+
+### Parallelization in R
+
+Broad overview/history of how to parallelize in R.
 
 ### `mirai`
 
-The parallelization package we are using is `mirai` \[1\], self
-described as a “Minimalist Async Evaluation Framework for R”. Before we
-briefly describe how `mirai` works at a high level, it is useful to
-mention some of its benefits which led us to select it as our parallel
-backend.
+The parallelization package we are using is `mirai` \[4\], self
+described as a “Minimalist Async Evaluation Framework for R”. In
+`mirai`, workers area called daemons. Before we briefly describe how
+`mirai` works at a high level, it is useful to mention some of its
+benefits which led us to select it as our parallel backend.
 
 #### Why `mirai`?
 
 `mirai` very naturally allows for heterogenous compute through a clean
 API. What this means in practice is that, once we migrate to `mirai`,
 users will be able to run `loo` code in parallel on their laptop, on
-remote computers, on a HPC system, or any zany mixture (\[1\],
+remote computers, on a HPC system, or any zany mixture (\[4\],
 specifically see
 [sec. 6](https://mirai.r-lib.org/articles/v01-reference.html#remote-infrastructure)
 in the Reference Manual). Decoupling the execution profile from `loo`
@@ -33,28 +88,33 @@ hassle.
 
 `mirai` is also [widely
 used](https://mirai.r-lib.org/index.html#across-the-r-stack) across
-major R packages–for example, recently landing in `purrr` (\[2\], \[3\],
+major R packages–for example, recently landing in `purrr` (\[5\], \[6\],
 see
 [`in_parallel()`](https://purrr.tidyverse.org/reference/in_parallel.html#references)).
 `mirai` is also “the first official alternative communications backend
-for base R’s `parallel` package.” \[1\], and is used in other major
-packages like `shiny` (\[1\], see [the
+for base R’s `parallel` package.” \[4\], and is used in other major
+packages like `shiny` (\[4\], see [the
 vignette](https://mirai.r-lib.org/articles/shiny.html)), and in `tune`,
-which is a vital part of the `tidymodels` workflow (\[4\], see [the
+which is a vital part of the `tidymodels` workflow (\[7\], see [the
 vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
 
 #### How does `mirai` work?
 
 <!-- TODO -->
 
-More on mirai internals, NNG and all that
-
-#### Serialization
+High level overview of how `mirai` works.
 
 <!-- TODO -->
 
-What it is, how its used, how it is related to `mori`, why we can’t use
-for model methods. Experiment proving we can’t use for model methods.
+Link to appendix which goes more in depth on internals, NNG and all that
+
+##### Serialization
+
+<!-- TODO -->
+
+High level: what it is, how its used, how it is related to `mori`, why
+we can’t use for model methods. Link to appendix experiment proving we
+can’t use for model methods.
 
 #### RNG
 
@@ -108,7 +168,7 @@ mirai::daemons(0)
 Note that by default if `daemons()` is called without setting a seed,
 the RNG streams aren’t reproducible (just like results in serial
 execution without setting a seed)–ensuring “statistical validity but not
-numerical reproducibility between runs” \[5\]. If we rerun the exact
+numerical reproducibility between runs” \[8\]. If we rerun the exact
 same `mirai` code, we do get the same results:
 
 ``` r
@@ -133,8 +193,8 @@ mirai::mirai_map(1:4, rexp)[]
 mirai::daemons(0)
 ```
 
-However, changing the number of daemons does not maintain the same
-results, which is obviously problematic:
+However, changing the number of daemons alters our results, which is
+obviously problematic:
 
 ``` r
 set.seed(0)
@@ -159,7 +219,8 @@ mirai::daemons(0)
 ```
 
 Setting a seed manually when launching daemons gets reproducibility
-(stabilty over runs), “regardless of the number of daemons used.” \[5\].
+(stability over runs), “regardless of the number of daemons used.”
+\[8\].
 
 ``` r
 mirai::daemons(4, seed = 0)
@@ -209,14 +270,14 @@ major part of this project.
 
 Currently, parallelization in loo goes through [three
 paths](https://github.com/stan-dev/loo/blob/05a6bd20af83c919ba7a5572e3e0a50426c17a77/R/importance_sampling.R#L206)
-\[6\]:
+\[9\]:
 
 1.  Serial execution using `lapply()`
 2.  Forking through `parallel::mclapply()`
 3.  Fresh processes through `parallel::parLapply()`
 
 The serial execution path is taken when the `cores` argument is equal to
-1, and forking is only available on Linux and MacOS. Since `mirai` \[1\]
+1, and forking is only available on Linux and MacOS. Since `mirai` \[4\]
 neatly subsumes paths 2 and 3, a question we had was what would the
 performance hit be if we also removed 1–that is, if a user requested
 serial execution, what do we lose by using `mirai` with a single core.
@@ -288,14 +349,14 @@ results |> summary(relative = TRUE)
 NB: the `mem_alloc` column should not be interpreted as total memory
 usage for `mirai`: `bench::mark()` records R heap allocations via
 `utils::Rprofmem()`, which is not able to track daemons’ memory usage
-\[1\], \[7\], \[8\].
+\[4\], \[10\], \[11\].
 
 `mirai_map()` with a single daemon has a median runtime of ~26ms,
 roughly 2.5x slower than the fastest in-process approach. Of course, in
 absolute terms the difference is negligible, adding only about 15ms. The
 memory usage of all in-process approaches are relatively close to one
 another. `vapply()`’s small memory overhead may probably be attributed
-to the extra work it does validating types and lengths and such \[8\].
+to the extra work it does validating types and lengths and such \[11\].
 
 In short, it is probably a good idea to directly test the effects of
 serial `mirai` execution in `loo`, but it is likely that we will find
@@ -316,14 +377,14 @@ high, and the peaks don’t overlap, then it is possible for you to
 squeeze past without 16 gigs free. Note, however, that this 1GB usage
 per parallel worker is assuming that there is no memory that can be
 shared. If objects are reused across workers, we could using something
-like `mori` \[9\] in R to reduce the physical memory usage by mapping
+like `mori` \[12\] in R to reduce the physical memory usage by mapping
 some objects in workers to the same shared address spaces, thus eliding
-copies–unless, of course, a worker modifies the object \[10\]. This can
+copies–unless, of course, a worker modifies the object \[13\]. This can
 be loosely seen as mildly clawing back some of the benefits of forking
 with respect to memory. Note however, that `mori` works on a limited set
 of R objects, specifically “atomic vector types, lists, and data frames”
-\[9\]. See
-<a href="#sec-mori-model-methods" class="quarto-xref">Section 2.2</a>
+\[12\]. See
+<a href="#sec-mori-model-methods" class="quarto-xref">Section 7.2</a>
 for empirical proof that we cannot naively use `mori` to share compiled
 model methods across workers.
 
@@ -335,10 +396,6 @@ simply by running our functions across varying input sizes and modelling
 peak memory usage (probably averaged over a few runs) as a function of
 the parameters. Of course, if we implement this we would need to test it
 to see how accurate and conservative our model is.
-
-### `mori` and model methods
-
-<!-- TODO -->
 
 ## Where is parallelization currently in use?
 
@@ -440,7 +497,7 @@ helpful (see
 we found two potential speedups–in these places, we may be able to
 benefit from *vectorizing* functions instead of parallelizing a loop.
 Vectorization is advantageous in these spots as we would be rewriting R
-loops as optimized matrix operations \[11, Secs. 24.5–24.7\].
+loops as optimized matrix operations \[14, Secs. 24.5–24.7\].
 
 > Matrix algebra is a general example of vectorisation. There loops are
 > executed by highly tuned external libraries like BLAS. If you can
@@ -461,7 +518,7 @@ Bayesian bootstrap iterations where it seems quite plausible to swap to
 matrix operations. This could potentially be a large speedup as the loop
 is large, being of length `BB_n`, which defaults to 1,000 replications.
 There don’t appear to be any reallocations in the loop, so the speedup
-will probably be dominated by the efficiency of matrix ops \[11, Secs.
+will probably be dominated by the efficiency of matrix ops \[14, Secs.
 5.3.1, 24.6\]. This is tracked in \#XXX. <!-- TODO: PR -->
 
 Similarly, though less interesting, is a gradient calculation in
@@ -505,10 +562,14 @@ where each process takes time and needs its own core. Oversubscription
 is promising more parallelization than what the hardware can
 provide–note that parallelization usually has some fixed startup costs
 as well (see
-<a href="#sec-mirai-overhead" class="quarto-xref">Section 1.1.5</a>), so
+<a href="#sec-mirai-overhead" class="quarto-xref">Section 1.2.4</a>), so
 we would probably lose performance. In `loo` specifically, we must be
 careful when parallelizing functions to ensure we do not accidentally
-have nested parallelization.
+have nested parallelization. Note that `mirai` exposes a function,
+[`on_daemon()`](https://mirai.r-lib.org/reference/on_daemon.html), which
+may be helpful to avoid nested parallelization \[4\]. However, note that
+this only accounts for nested `mirai` runs, and not nested
+parallelization on the whole.
 
 <!-- TODO: update footnote numbers -->
 
@@ -550,7 +611,7 @@ and memory usage.
 ------------------------------------------------------------------------
 
 `b3` aims to measure language-agnostic end-to-end branch-vs-baseline
-performance diffs. `b3`’s philosophy is akin to touchstone \[12\], but
+performance diffs. `b3`’s philosophy is akin to touchstone \[15\], but
 shucks the R focus–`b3` handles orchestration, measurement, and
 reporting, while users must provide their project runtime, dependency
 setup, and benchmark command. `b3` compares complete repository states:
@@ -646,6 +707,10 @@ complex model, wrappers around the core CLI in various host languages to
 facilitate usage, first-class support for standing up non-GHA CI/CD
 workflows, and so on.
 
+### `mori` and model methods
+
+<!-- TODO -->
+
 ### Session Info
 
 ``` r
@@ -666,7 +731,7 @@ sessioninfo::session_info(
      collate  English_United States.utf8
      ctype    English_United States.utf8
      tz       America/Los_Angeles
-     date     2026-06-02
+     date     2026-06-05
      pandoc   3.8.3 @ c:\\Program Files\\Positron\\resources\\app\\quarto\\bin\\tools/ (via rmarkdown)
      quarto   1.9.36 @ C:\\Users\\visru\\AppData\\Local\\Programs\\Quarto\\bin\\quarto.exe
 
@@ -687,9 +752,46 @@ sessioninfo::session_info(
 
 <div id="refs" class="references csl-bib-body" entry-spacing="0">
 
-<div id="ref-mirai" class="csl-entry">
+<div id="ref-pacheco" class="csl-entry">
 
 <span class="csl-left-margin">\[1\]
+</span><span class="csl-right-inline">P. Pacheco and M. Malensek, *An
+introduction to parallel programming*. Elsevier, 2022. doi:
+[10.1016/B978-0-12-804605-0.00002-6](https://doi.org/10.1016/B978-0-12-804605-0.00002-6).
+Available:
+<https://linkinghub.elsevier.com/retrieve/pii/B9780128046050000026>.
+\[Accessed: June 02, 2026\]</span>
+
+</div>
+
+<div id="ref-amdahl" class="csl-entry">
+
+<span class="csl-left-margin">\[2\]
+</span><span class="csl-right-inline">G. M. Amdahl, “Validity of the
+single processor approach to achieving large scale computing
+capabilities,” in *Proceedings of the april 18-20, 1967, spring joint
+computer conference*, in AFIPS ’67 (spring). New York, NY, USA:
+Association for Computing Machinery, 1967, pp. 483–485. doi:
+[10.1145/1465482.1465560](https://doi.org/10.1145/1465482.1465560).
+Available: <https://doi.org/10.1145/1465482.1465560></span>
+
+</div>
+
+<div id="ref-parallelcomputing" class="csl-entry">
+
+<span class="csl-left-margin">\[3\]
+</span><span class="csl-right-inline">K. Asanovic *et al.*, “A view of
+the parallel computing landscape,” *Communications of the ACM*, vol. 52,
+no. 10, pp. 56–67, Oct. 2009, doi:
+[10.1145/1562764.1562783](https://doi.org/10.1145/1562764.1562783).
+Available: <https://dl.acm.org/doi/10.1145/1562764.1562783>. \[Accessed:
+June 01, 2026\]</span>
+
+</div>
+
+<div id="ref-mirai" class="csl-entry">
+
+<span class="csl-left-margin">\[4\]
 </span><span class="csl-right-inline">C. Gao, *Mirai: Minimalist async
 evaluation framework for r*. 2026. Available:
 <https://mirai.r-lib.org></span>
@@ -698,7 +800,7 @@ evaluation framework for r*. 2026. Available:
 
 <div id="ref-purrr-1.1.0" class="csl-entry">
 
-<span class="csl-left-margin">\[2\]
+<span class="csl-left-margin">\[5\]
 </span><span class="csl-right-inline">D. V. Charlie Gao Hadley Wickham
 and L. Henry, “Parallel processing in purrr 1.1.0,” July 10, 2025.
 Available:
@@ -708,7 +810,7 @@ Available:
 
 <div id="ref-purrr" class="csl-entry">
 
-<span class="csl-left-margin">\[3\]
+<span class="csl-left-margin">\[6\]
 </span><span class="csl-right-inline">H. Wickham and L. Henry, *Purrr:
 Functional programming tools*. 2026. Available:
 <https://purrr.tidyverse.org/></span>
@@ -717,7 +819,7 @@ Functional programming tools*. 2026. Available:
 
 <div id="ref-tune" class="csl-entry">
 
-<span class="csl-left-margin">\[4\]
+<span class="csl-left-margin">\[7\]
 </span><span class="csl-right-inline">M. Kuhn, *Tune: Tidy tuning
 tools*. 2026. Available: <https://tune.tidymodels.org/></span>
 
@@ -725,7 +827,7 @@ tools*. 2026. Available: <https://tune.tidymodels.org/></span>
 
 <div id="ref-mirai-2.5.0" class="csl-entry">
 
-<span class="csl-left-margin">\[5\]
+<span class="csl-left-margin">\[8\]
 </span><span class="csl-right-inline">C. Gao, “Mirai 2.5.0,” Sept. 05,
 2025. Available:
 <https://tidyverse.org/blog/2025/09/mirai-2-5-0/></span>
@@ -734,7 +836,7 @@ tools*. 2026. Available: <https://tune.tidymodels.org/></span>
 
 <div id="ref-loo" class="csl-entry">
 
-<span class="csl-left-margin">\[6\]
+<span class="csl-left-margin">\[9\]
 </span><span class="csl-right-inline">A. Vehtari *et al.*, “Loo:
 Efficient leave-one-out cross-validation and WAIC for bayesianmodels.”
 2025. Available: <https://mc-stan.org/loo/></span>
@@ -743,7 +845,7 @@ Efficient leave-one-out cross-validation and WAIC for bayesianmodels.”
 
 <div id="ref-bench" class="csl-entry">
 
-<span class="csl-left-margin">\[7\]
+<span class="csl-left-margin">\[10\]
 </span><span class="csl-right-inline">J. Hester and D. Vaughan, *Bench:
 High precision timing of r expressions*. 2025. Available:
 <https://bench.r-lib.org/></span>
@@ -752,7 +854,7 @@ High precision timing of r expressions*. 2025. Available:
 
 <div id="ref-R" class="csl-entry">
 
-<span class="csl-left-margin">\[8\]
+<span class="csl-left-margin">\[11\]
 </span><span class="csl-right-inline">R Core Team, *R: A language and
 environment for statistical computing*. Vienna, Austria: R Foundation
 for Statistical Computing, 2026. Available:
@@ -762,7 +864,7 @@ for Statistical Computing, 2026. Available:
 
 <div id="ref-moripost" class="csl-entry">
 
-<span class="csl-left-margin">\[9\]
+<span class="csl-left-margin">\[12\]
 </span><span class="csl-right-inline">C. Gao, “Mori: Shared memory for r
 objects,” Apr. 23, 2026. Available:
 <https://opensource.posit.co/blog/2026-04-23_mori-0-1-0/>. \[Accessed:
@@ -772,7 +874,7 @@ May 26, 2026\]</span>
 
 <div id="ref-mori" class="csl-entry">
 
-<span class="csl-left-margin">\[10\]
+<span class="csl-left-margin">\[13\]
 </span><span class="csl-right-inline">C. Gao, *Mori: Shared memory for r
 objects*. 2026. Available: <https://shikokuchuo.net/mori/></span>
 
@@ -780,7 +882,7 @@ objects*. 2026. Available: <https://shikokuchuo.net/mori/></span>
 
 <div id="ref-advr" class="csl-entry">
 
-<span class="csl-left-margin">\[11\]
+<span class="csl-left-margin">\[14\]
 </span><span class="csl-right-inline">H. Wickham, *Advanced r*, 2nd ed.
 Chapman; Hall/CRC, 2019. doi:
 [10.1201/9781351201315](https://doi.org/10.1201/9781351201315).
@@ -790,7 +892,7 @@ Available: <https://adv-r.hadley.nz/></span>
 
 <div id="ref-touchstone" class="csl-entry">
 
-<span class="csl-left-margin">\[12\]
+<span class="csl-left-margin">\[15\]
 </span><span class="csl-right-inline">L. Walthert and J. Wujciak-Jens,
 *Touchstone: Continuous benchmarking with statistical confidence based
 on ’git’ branches*. 2026. Available:
