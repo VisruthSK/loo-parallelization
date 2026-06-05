@@ -10,5 +10,4 @@ csl: ieee-with-url.csl
 
 project:
   render:
-    - "**/*.qmd"
-    - "README.qmd"
+    - "docs/report.qmd"

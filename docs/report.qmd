@@ -8,11 +8,6 @@ bibliography: references.bib
 csl: ieee-with-url.csl
 ---
 
-<!-- 
-gfm: default
-pdf: default 
--->
-
 ::: {.callout-note}
 
 ## Guiding questions
@@ -34,8 +29,6 @@ pdf: default
 > outline (can also be added later). No need to go too much into the 
 > background (e.g., what is parallelisation).
 
-<!-- What is parallelization, why we would want it, differences between multiprocessing/multithreading, etc., broad overview of how to parallelize in R. Also at some point define terminology and ensure all of doc uses it. -->
-
 # Approaches to parallelisation {#sec-approaches-to-parallelisation}
 
 > Flo:
@@ -49,7 +42,7 @@ pdf: default
 Currently, parallelization in loo goes through [paths 1-3](https://github.com/stan-dev/loo/blob/05a6bd20af83c919ba7a5572e3e0a50426c17a77/R/importance_sampling.R#L206) @loo:
 
 1. Serial execution using `lapply()`
-  + run one task after the other 
+  + run one task after the other
   + no parallelization; synchronous
 2. Forking through `parallel::mclapply()`
   + create child processes as a copy of the parent's memory that run in parallel, but the main R session blocks and waits for all of them to finish before returning the result list
@@ -86,8 +79,6 @@ Only caveat, it does not provide a possibility for shared memory (but for this `
 
 The parallelization package we are using is `mirai` @mirai, self described as a "Minimalist Async Evaluation Framework for R". Before we briefly describe how `mirai` works at a high level, it is useful to mention some of its benefits which led us to select it as our parallel backend.
 
-<!-- #### Why `mirai`? -->
-
 `mirai` very naturally allows for heterogenous compute through a clean API. What this means in practice is that, once we migrate to `mirai`, users will be able to run `loo` code in parallel on their laptop, on remote computers, on a HPC system, or any zany mixture (@mirai, specifically see [sec. 6](https://mirai.r-lib.org/articles/v01-reference.html#remote-infrastructure) in the Reference Manual). Decoupling the execution profile from `loo` code, especially using the API `mirai` exposes, allows for users to more easily exploit their available computational resources without much hassle.
 
 `mirai` is also [widely used](https://mirai.r-lib.org/index.html#across-the-r-stack) across major R packages--for example, recently landing in `purrr` ([@purrr-1.1.0; @purrr], see [`in_parallel()`](https://purrr.tidyverse.org/reference/in_parallel.html#references)). `mirai` is also "the first official alternative communications backend for base R’s `parallel` package." @mirai, and is used in other major packages like `shiny` (@mirai, see [the vignette](https://mirai.r-lib.org/articles/shiny.html)), and in `tune`, which is a vital part of the `tidymodels` workflow (@tune, see [the vignette](https://tune.tidymodels.org/reference/parallelism.html#using-mirai)).
@@ -114,6 +105,7 @@ Firstly, even if we set the same seed, we won't get the same results from `lappl
 >
 > Regarding seed: setting the seed via `set.seed(0)` will set the RNG seed in 
 > the host R sessions, but **not** in each daemon.
+
 ```{r}
 set.seed(0)
 str(lapply(1:4, rexp))
@@ -143,7 +135,7 @@ However, changing the number of daemons does not maintain the same results, whic
 > Regarding seed:
 > As the seed is related to the session, only the first two sessions produce
 > the same results as above.
- 
+
 ```{r}
 set.seed(0)
 mirai::daemons(2)
@@ -245,7 +237,8 @@ In short, it is probably a good idea to directly test the effects of serial `mir
 Parallelization may lead to running out of memory (OOM). Copying the construction from that note: if you have, say, 8GB memory but spin up 16 tasks which each use 1GB, you will run out of memory. The math here is quite clear, though it is worst case and is complicated by the profile of the program--if that 1GB is peak usage and it normally doesn't go so high, and the peaks don't overlap, then it is possible for you to squeeze past without 16 gigs free. Note, however, that this 1GB usage per parallel worker is assuming that there is no memory that can be shared. 
 
 ## Shared memory & the potential of `mori`
-`mirai` by itself does not allow for shared memory. However, [`mori`](https://shikokuchuo.net/mori/) is a recently released R packages that allows for shared memory by placing an R object once into OS-level shared memory and letting every process on the machine read the same physical pages directly, with no data copying between processes ([source](https://opensource.posit.co/blog/2026-04-23_mori-0-1-0/)).
+
+`mirai` by itself does not allow for shared memory. However, [`mori`](https://shikokuchuo.net/mori/) is a recently released R package that allows for sharing memory across workers by placing an R object once into OS-level shared memory and letting every process on the machine read the same physical pages directly, with no data copying between processes @moripost.
 
 If objects are reused across workers, we could using something like `mori` @moripost in R to reduce the physical memory usage by mapping some objects in workers to the same shared address spaces, thus eliding copies--unless, of course, a worker modifies the object @mori. This can be loosely seen as mildly clawing back some of the benefits of forking with respect to memory. Note however, that `mori` works on a limited set of R objects, specifically "atomic vector types, lists, and data frames" @moripost. See @sec-q2-mori-model-methods for empirical proof that we cannot naively use `mori` to share compiled model methods across workers.
 
@@ -354,7 +347,6 @@ Make a list of packages of which you have thought of:
 * package name
 * Any issues that you see?
 * (make a short note even if you don't see issues)
-<!-- TODO -->
 
 # References
 

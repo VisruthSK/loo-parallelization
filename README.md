@@ -2,10 +2,6 @@
 
 General documentation for Stan/Numfocus GSOC 2026 project: [parallelizing `loo`](https://www.visruth.com/blog/20260516-01/).  The relevant issue is [#308](https://github.com/stan-dev/loo/issues/308).
 
-<!-- It would be really helpful to add a project overview to your repo, for example in a README.md. This could include the main tasks and subtasks. A few reasons why this is useful:
-It acts as a red thread through the project; we can always refer back to it to see where we currently stand, and link out to more detailed discussions in the notes/ folder.
-It gives you a natural place for a "Misc tasks" section at the end, where you can collect ideas or questions that come up in our meetings but might be slightly out of scope or uncertain. This way, nothing gets lost, even if we decide later not to pursue a particular idea. -->
-
 Currently `loo` relies on the `parallel` package from base R @R to parallelize certain computations, such as moment matching, Pareto smoothed importance sampling @PSIS, and more. This works well on Unix systems, where `parallel` can use forking, but Windows requires a separate, socket based path. This project will replace `loo`'s current parallelization structure, swapping to a platform-agnostic approach using `mirai` @mirai. This will have the added benefit of allowing users to parallelize execution over heterogenous compute resources (e.g., over local cores, a distributed systems, GPUs, or any mixture). This freedom decouples execution profiles from `loo`'s software, allowing users with varying compute needs to exploit their available resources without any extra work. Further, a major part of the project here would be writing strong documentation which teaches users how to make use of some common resources such as SLURM or SSH access to users, building off of the documentation in packages like `mirai`, but with a focus on applications to `loo`.
 
 ## Main Tasks
