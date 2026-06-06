@@ -88,49 +88,45 @@ More on mirai internals, NNG and all that
 
 One thing worth discussing for a moment is random number generation in `mirai`, which uses the L'Ecuyer PRNG. The details around RNG in `mirai` are pretty straightforward, as we can see through a few very simple examples.
 
-Firstly, even if we set the same seed, we won't get the same results from `lapply()` and `mirai_map()`.
+Firstly, even if we set the same seed, we won't get the same results from `lapply()` and `mirai_map()`. Here, we can see that if even if we use the same seed (`set.seed(0)` before each call), randomly generating a few numbers from an exponential distribution changes depending on whether we call `lapply()` or `mirai_map()`. More specifically, both maps are essentially doing `rexp(1), rexp(2), rexp(3), rexp(4)`.[^2] In this snippet we are using 4 daemons, so in the `mirai_map()` call, we are starting 4 RNG streams which are being derived from the main stream (see [in source](https://github.com/r-lib/mirai/blob/19ce00aeaf5cbc9d583a1d1409137692dee1d932/R/daemons.R#L626)).
 
-> Flo: Explanation of what the mirai code is doing would help to understand the behavior. When I understand it correctly then `daemons(4)` starts 4 background worker processes (cf. daemons). `mirai_map(1:4, rexp)` dispatches 4 tasks (`rexp(1), rexp(2), rexp(3), rexp(4)`) to the 4 daemons. The `[]` blocks the main R session until all 4 tasks have completed, then returns a list containing all the results. Finally, `mirai::daemons(0)` shuts down and resets all mirai daemons for the current compute profile.
->
-> Regarding seed: setting the seed via `set.seed(0)` will set the RNG seed in the host R sessions, but **not** in each daemon.
+[^2]: Somewhat orthogonal to this section, but note that `with(set.seed(0), lapply(1:4, rexp) |> unlist())` is equivalent to `with(set.seed(0), rexp(10))`.
 
 ```{r}
+#| label: serial-vs-mirai
 set.seed(0)
 str(lapply(1:4, rexp))
 
 set.seed(0)
-mirai::daemons(4)
-str(mirai::mirai_map(1:4, rexp)[])
-mirai::daemons(0)
+mirai::daemons(4) # start 4 background processes
+str(mirai::mirai_map(1:4, rexp)[]) # mirai_map() is an asynch map; `[]` blocks to collect results
+mirai::daemons(0) # shut down all processes for next experiments
 ```
 
 Note that by default if `daemons()` is called without setting a seed, the RNG streams aren't reproducible (just like results in serial execution without setting a seed)--ensuring "statistical validity but not numerical reproducibility between runs" @mirai-2.5.0. If we rerun the exact same `mirai` code, we do get the same results:
 
 ```{r}
+#| label: mirai-repeat
 set.seed(0)
 mirai::daemons(4)
 str(mirai::mirai_map(1:4, rexp)[])
 mirai::daemons(0)
 ```
 
-However, changing the number of daemons does not maintain the same results, which is obviously problematic:
-
-> Flo: Here the number of daemons is reduced to 2, thus 2 R sessions are started. The first 2 tasks (`rexp(1), ...`) are dispatched to the 2 daemons and whenever a daemon finishes the task the next task is allocated to it.
->
-> Regarding seed: As the seed is related to the session, only the first two sessions produce the same results as above.
+With 2 daemons, `mirai_map(1:4, rexp)` still creates four tasks: `rexp(1), rexp(2), rexp(3), rexp(4)`. The first two tasks run on the two available daemons (so they have the same results as before); later tasks are assigned as daemons become free. Since RNG streams are tied to daemons, changing the number of daemons changes which stream each task uses, so the output changes.
 
 ```{r}
+#| label: mirai-daemon-count
 set.seed(0)
 mirai::daemons(2)
 str(mirai::mirai_map(1:4, rexp)[])
 mirai::daemons(0)
 ```
 
-Setting a seed manually when launching daemons gets reproducibility (stability over runs), "regardless of the number of daemons used." @mirai-2.5.0.
-
-> Flo: Instead of setting seed for the host session, we can set a seed for the daemons explicitly, which initializes a stream per mirai task (instead of host session)
+Setting a seed manually when launching daemons gets reproducibility (stability over runs), "regardless of the number of daemons used." @mirai-2.5.0. In this case, we are essentially seeding the daemons' processes directly instead of seeding the host session and making each daemon derive its RNG state from host.
 
 ```{r}
+#| label: mirai-seed-stable
 mirai::daemons(4, seed = 0)
 str(mirai::mirai_map(1:4, rexp)[])
 mirai::daemons(0)

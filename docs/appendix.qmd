@@ -55,7 +55,7 @@ Parallel map over a PSOCK cluster. Requires explicit setup (`makeCluster`), expo
 
 #### `daemons()`
 
-Launches $n$ persistent background workers for the current `mirai` session. Workers stay alive and idle until reassigned or the session ends.
+Launches $n$ persistent background workers for the current `mirai` session. Workers stay alive and idle until reassigned or the session ends. Workers can run on the same machine, or can be remote resources, and roughly can be considered as background R processes. See [the documentation](https://mirai.r-lib.org/reference/daemons.html) for more details.
 
 #### `mirai_map()`
 
