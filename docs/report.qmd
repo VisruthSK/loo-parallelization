@@ -97,43 +97,61 @@ Firstly, even if we set the same seed, we won't get the same results from `lappl
 set.seed(0)
 str(lapply(1:4, rexp))
 
-set.seed(0)
-mirai::daemons(4) # start 4 background processes
-str(mirai::mirai_map(1:4, rexp)[]) # mirai_map() is an asynch map; `[]` blocks to collect results
-mirai::daemons(0) # shut down all processes for next experiments
+# using with() just for scoping
+with(
+  {
+    set.seed(0) # set seed in main process
+    mirai::daemons(4) # start 4 background processes
+  },
+  # mirai_map() is an asynch map
+  # `[]` blocks to collect results--see Glossary
+  str(mirai::mirai_map(1:4, rexp)[])
+)
 ```
 
 Note that by default if `daemons()` is called without setting a seed, the RNG streams aren't reproducible (just like results in serial execution without setting a seed)--ensuring "statistical validity but not numerical reproducibility between runs" @mirai-2.5.0. If we rerun the exact same `mirai` code, we do get the same results:
 
 ```{r}
 #| label: mirai-repeat
-set.seed(0)
-mirai::daemons(4)
-str(mirai::mirai_map(1:4, rexp)[])
-mirai::daemons(0)
+with(
+  {
+    set.seed(0)
+    mirai::daemons(4)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
 ```
 
 With 2 daemons, `mirai_map(1:4, rexp)` still creates four tasks: `rexp(1), rexp(2), rexp(3), rexp(4)`. The first two tasks run on the two available daemons (so they have the same results as before); later tasks are assigned as daemons become free. Since RNG streams are tied to daemons, changing the number of daemons changes which stream each task uses, so the output changes.
 
 ```{r}
 #| label: mirai-daemon-count
-set.seed(0)
-mirai::daemons(2)
-str(mirai::mirai_map(1:4, rexp)[])
-mirai::daemons(0)
+with(
+  {
+    set.seed(0)
+    mirai::daemons(2)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
 ```
 
 Setting a seed manually when launching daemons gets reproducibility (stability over runs), "regardless of the number of daemons used." @mirai-2.5.0. In this case, we are essentially seeding the daemons' processes directly instead of seeding the host session and making each daemon derive its RNG state from host.
 
 ```{r}
 #| label: mirai-seed-stable
-mirai::daemons(4, seed = 0)
-str(mirai::mirai_map(1:4, rexp)[])
-mirai::daemons(0)
+with(
+  {
+    mirai::daemons(4, seed = 0)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
 
-mirai::daemons(2, seed = 0)
-str(mirai::mirai_map(1:4, rexp)[])
-mirai::daemons(0)
+with(
+  {
+    mirai::daemons(3, seed = 0)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
 ```
 
 In essence, reproducibility is the users' responsibility, akin to compute setups. This further stresses the fact that documentation is a major part of this project.
@@ -222,7 +240,67 @@ Since OOM is a slightly tricky thing to think about, one user friendly feature w
 
 ## Q2: Can we use `mori` for sharing model methods? {#sec-q2-mori-model-methods}
 
-<!-- TODO -->
+No.
+
+In this example, we build a trivial model, compile model methods, and attempt to use `mori` to share the fit. As we can see, this doesn't work--even though `theta`, a simple vector, is actually shared. This just shows that `mori` is working, but `fit` cannot be shared @moripost.
+
+```{r}
+#| label: mori-model-methods
+#| error: true
+library(cmdstanr)
+
+stan_file <- file.path(
+  cmdstan_path(),
+  "examples",
+  "bernoulli",
+  "bernoulli.stan"
+)
+
+model <- cmdstan_model(
+  stan_file,
+  compile_model_methods = TRUE,
+  force_recompile = TRUE
+)
+
+fit <- model$sample(
+  data = list(N = 1, y = 0),
+  fixed_param = TRUE,
+  chains = 1,
+  iter_warmup = 0,
+  iter_sampling = 1,
+  refresh = 0
+)
+
+fit$init_model_methods()
+
+theta <- mori::share(seq(0.01, 0.99, length.out = 100))
+fit <- mori::share(fit)
+
+mori::is_shared(fit)
+mori::is_shared(theta)
+
+lp <- function(theta, fit) {
+  fit$log_prob(
+    fit$unconstrain_variables(list(theta = theta)),
+    jacobian = FALSE
+  )
+}
+
+with(
+  mirai::daemons(4),
+  mirai::mirai_map(
+    theta,
+    lp,
+    .args = list(fit = fit)
+  )[] |>
+    unlist() |>
+    table()
+)
+#> Error in .Call(<pointer: (nil)>, ext_model_ptr, variables): NULL value passed as symbol address
+#>                                                                                             100
+```
+
+As we can see from the output of `mori::is_shared(fit)`, `fit` was not converted to a shared ALTREP form. `mori` successfully shares the plain numeric vector `theta`, but it does not share `fit`. The later `NULL` pointer errors arise when daemons try to call model methods through that non-shared `fit` object.
 
 # Q3: Where is parallelization currently in use in `loo`? {#sec-q3-parallelization-loo}
 
