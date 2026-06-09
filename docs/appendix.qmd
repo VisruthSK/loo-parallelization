@@ -43,7 +43,7 @@ A worker process that remains alive between tasks and across multiple calls, ret
 
 #### `lapply()`
 
-Base R serial map. Applies a function to each element of a list sequentially in the host session. No workers, no overhead; considered as the baseline.
+Base R serial map. Applies a function to each element of list-like input sequentially in the host session. No workers, no parallelization overhead; considered as the baseline.
 
 #### `mclapply()` (Unix only)
 
@@ -59,11 +59,11 @@ Launches $n$ persistent background workers for the current `mirai` session. Work
 
 #### `mirai_map()`
 
-Parallel async map that dispatches tasks to daemons. Returns a list of unresolved mirai objects immediately. Append `[]` to block and collect all results.
+Parallel async map that dispatches tasks to daemons. Returns a list of unresolved `mirai` objects immediately. Append `[]` to block and collect all results.
 
 #### `[]`
 
-The collect operator on a mirai result. Blocks the main session until all dispatched tasks are complete and returns their values. Makes an async call synchronous.
+The collect operator on a `mirai` result. Blocks until all dispatched tasks are complete and returns their values.
 
 ## `b3`: Bayesian Branch Benchmarking
 
@@ -143,9 +143,8 @@ B3 also reports order-stratified posterior summaries for baseline-first and cand
 
 ```{r}
 #| label: session-info
-#| cache: false
 sessioninfo::session_info(
-  pkgs = c("loo", "mirai", "bench", "purrr", "sessioninfo"),
+  pkgs = c("loo", "mori", "mirai", "bench", "purrr", "sessioninfo"),
   info = c("platform", "packages"),
   dependencies = FALSE
 )

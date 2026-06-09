@@ -4,6 +4,7 @@ format:
   pdf: 
     toc: true
     toc-depth: 3
+number-sections: true
 bibliography: references.bib
 ---
 
@@ -23,7 +24,7 @@ bibliography: references.bib
 
 > Flo: Probably here just super short the content of the GSoC project and a short outline (can also be added later). No need to go too much into the background (e.g., what is parallelization).
 
-Please refer to @sec-appendix for a glossary of some important terms.
+Please refer to the appendix for definitions of some important terms.
 
 Currently `loo` relies on the `parallel` package from base R @R to parallelize certain computations, such as moment matching, Pareto smoothed importance sampling @PSIS, and more. This works well on Unix systems, where `parallel` can use forking, but Windows requires a separate, socket based path. This project will replace `loo`'s current parallelization structure, swapping to a platform-agnostic approach using `mirai` @mirai. This will have the added benefit of allowing users to parallelize execution over heterogenous compute resources (e.g., over local cores, a distributed systems, GPUs, or any mixture). This freedom decouples execution profiles from `loo`'s software, allowing users with varying compute needs to exploit their available resources without any extra work. Further, a major part of the project here would be writing strong documentation which teaches users how to make use of some common resources such as SLURM or SSH access to users, building off of the documentation in packages like `mirai`, but with a focus on applications to `loo`.
 
@@ -245,8 +246,8 @@ No.
 In this example, we build a trivial model, compile model methods, and attempt to use `mori` to share the fit. As we can see, this doesn't work--even though `theta`, a simple vector, is actually shared. This just shows that `mori` is working, but `fit` cannot be shared @moripost.
 
 ```{r}
-#| label: mori-model-methods
-#| error: true
+#| label: mori-model-methods-setup
+#| message: false
 library(cmdstanr)
 
 stan_file <- file.path(
@@ -268,14 +269,18 @@ fit <- model$sample(
   chains = 1,
   iter_warmup = 0,
   iter_sampling = 1,
-  refresh = 0
+  refresh = 0,
+  show_messages = FALSE
 )
 
 fit$init_model_methods()
 
 theta <- mori::share(seq(0.01, 0.99, length.out = 100))
 fit <- mori::share(fit)
+```
 
+```{r}
+#| label: mori-model-methods
 mori::is_shared(fit)
 mori::is_shared(theta)
 
@@ -296,8 +301,9 @@ with(
     unlist() |>
     table()
 )
-#> Error in .Call(<pointer: (nil)>, ext_model_ptr, variables): NULL value passed as symbol address
-#>                                                                                             100
+#> Error in .Call(<pointer: (nil)>, ext_model_ptr, variables):
+#       NULL value passed as symbol address
+#>                                                        100
 ```
 
 As we can see from the output of `mori::is_shared(fit)`, `fit` was not converted to a shared ALTREP form. `mori` successfully shares the plain numeric vector `theta`, but it does not share `fit`. The later `NULL` pointer errors arise when daemons try to call model methods through that non-shared `fit` object.
@@ -398,6 +404,8 @@ Make a list of packages of which you have thought of: \* package name \* Any iss
 ::: {#refs}
 :::
 
-# Appendix {.unnumbered .unlisted} {#sec-appendix}
+<!-- TODO: fix this -->
+
+# Appendix {#sec-appendix .unnumbered .unlisted}
 
 {{< include appendix.qmd >}}
