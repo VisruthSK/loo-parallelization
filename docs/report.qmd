@@ -358,11 +358,111 @@ When browsing the codebase to find places where parallelization could be helpful
 
 Of course, for these potential improvements, we should first write tests for correctness, then write benchmarks in the PR.
 
-The more important of the two is in [`pseudobma_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L334), when performing a Bayesian bootstrap. This function is the backend for `loo_model_weights()`, and is used to average models using psuedo-Bayesian model averaging, optionally using a Bayesian bootstrap (which is referred to as psudo-BMA+). This pseudo-BMA+ path is the one we care about as it has the elidable loop. We currently loop over Bayesian bootstrap iterations where it seems quite plausible to swap to matrix operations. This could potentially be a large speedup as the loop is large, being of length `BB_n`, which defaults to 1,000 replications. There don't appear to be any reallocations in the loop, so the speedup will probably be dominated by the efficiency of matrix ops [@advr, secs. 5.3.1, 24.6]. This is tracked in #XXX. <!-- TODO: PR -->
+The more important of the two is in [`pseudobma_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L334), when performing a Bayesian bootstrap. This function is the backend for `loo_model_weights()`, and is used to average models using psuedo-Bayesian model averaging, optionally using a Bayesian bootstrap (which is referred to as psudo-BMA+). This pseudo-BMA+ path is the one we care about as it has the elidable loop. We currently loop over Bayesian bootstrap iterations where it seems quite plausible to swap to matrix operations. This could potentially be a large speedup as the loop is large, being of length `BB_n`, which defaults to 1,000 replications. There don't appear to be any reallocations in the loop, so the speedup will probably be dominated by the efficiency of matrix ops [@advr, secs. 5.3.1, 24.6]. This is implemented in [#368](https://github.com/stan-dev/loo/pull/368).
 
-Similarly, though less interesting, is a gradient calculation in [`stacking_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L278), just above the previous function. `stacking_weights()` is similarly used for combining models using stacking, that is, fitting a linear model to weigh the contending models. The gradient function is used for solving for those weights. However, the speedup here is less interesting because we are looping over `K`, the number of models being compared, which is usually small. However, we may as well take the (potential) free performance. This is tracked in #XXX. <!-- TODO: PR -->
+Here is a terse benchmark isolating the main loop to see the performance uplift almost purely from swapping to matrix operations. This benchmark isn't entirely representative of the real code since we are lowering all the out-of-loop, fixed costs. 
 
-These two loops seem like low hanging fruit and well worth the time to implement.
+```{r}
+#| label: vectorizing-bootstrap
+set.seed(0)
+N <- 400
+K <- 6
+BB_n <- 1000
+alpha <- 1
+lpd_point <- matrix(rnorm(N * K, mean = -1), nrow = N, ncol = K)
+BB_weighting <- loo:::dirichlet_rng(BB_n, rep(alpha, N))
+
+pseudobma_bb_loop <- function(lpd_point, BB_weighting) {
+  N <- nrow(lpd_point)
+  K <- ncol(lpd_point)
+  BB_n <- nrow(BB_weighting)
+  temp <- matrix(NA, BB_n, K)
+
+  for (bb in 1:BB_n) {
+    z_bb <- BB_weighting[bb, ] %*% lpd_point * N
+    uwts <- exp(z_bb - max(z_bb))
+    temp[bb, ] <- uwts / sum(uwts)
+  }
+
+  colMeans(temp)
+}
+
+pseudobma_bb_vectorized <- function(lpd_point, BB_weighting) {
+  N <- nrow(lpd_point)
+  z <- BB_weighting %*% lpd_point * N
+  uwts <- exp(z - matrixStats::rowMaxs(z))
+
+  colMeans(uwts / rowSums(uwts))
+}
+
+results <- bench::mark(
+  loop = pseudobma_bb_loop(lpd_point, BB_weighting),
+  vectorized = pseudobma_bb_vectorized(lpd_point, BB_weighting),
+  iterations = 1e3
+)
+
+summary(results)
+summary(results, relative = TRUE)
+```
+
+Vectorizing the Bayesian bootstrap nets massive memory savings and a mild speed up in wall clock time, though note that the routine only takes a few milliseconds so in absolute terms the speedup probably won't be extremely noticeable.
+
+Similarly, though less interesting, is a gradient calculation in [`stacking_weights()`](https://github.com/stan-dev/loo/blob/master/R/loo_model_weights.R#L278), just above the previous function. `stacking_weights()` is similarly used for combining models using stacking, that is, fitting a linear model to weigh the contending models. The gradient function is used for solving for those weights. However, the speedup here is less interesting because we are looping over `K`, the number of models being compared, which is usually small. However, we may as well take the (potential) free performance. This is implemented in [#370](https://github.com/stan-dev/loo/pull/370).
+
+```{r}
+#| label: vectorizing-gradient-calculations
+N <- 400
+K <- 20
+lpd_point <- matrix(rnorm(N * K, mean = -1), nrow = N, ncol = K)
+w <- rep(1 / K, K - 1)
+
+stacking_gradient_loop <- function(w, lpd_point) {
+  K <- ncol(lpd_point)
+  w_full <- c(w, 1 - sum(w))
+  grad <- rep(0, K - 1)
+  mlpd <- matrixStats::rowMaxs(lpd_point)
+
+  for (k in 1:(K - 1)) {
+    grad[k] <- sum(
+      (exp(lpd_point[, k] - mlpd) -
+        exp(lpd_point[, K] - mlpd)) /
+        exp(
+          matrixStats::rowLogSumExps(sweep(lpd_point, 2, log(w_full), '+')) -
+            mlpd
+        )
+    )
+  }
+
+  -grad
+}
+
+stacking_gradient_vectorized <- function(w, lpd_point) {
+  K <- ncol(lpd_point)
+  w_full <- c(w, 1 - sum(w))
+  mlpd <- matrixStats::rowMaxs(lpd_point)
+  denom <- exp(
+    matrixStats::rowLogSumExps(sweep(lpd_point, 2, log(w_full), '+')) - mlpd
+  )
+  grad <- colSums(
+    (exp(lpd_point[, 1:(K - 1), drop = FALSE] - mlpd) -
+      exp(lpd_point[, K] - mlpd)) /
+      denom
+  )
+
+  -grad
+}
+
+results <- bench::mark(
+  loop = stacking_gradient_loop(w, lpd_point),
+  vectorized = stacking_gradient_vectorized(w, lpd_point),
+  iterations = 1e3
+)
+
+summary(results)
+summary(results, relative = TRUE)
+```
+
+The vectorized path is an order faster, and uses about an order less memory as well. Again, like the previous change, it is important to note that these calls are very quick so an order faster may not even be noticable in typical usage.
 
 # Nested parallelization {#sec-nested-parallelization}
 
