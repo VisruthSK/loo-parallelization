@@ -1,5 +1,4 @@
 subtitle: "Stan GSOC 2026"
-format: gfm
 embed-resources: true
 execute: 
   cache: true
