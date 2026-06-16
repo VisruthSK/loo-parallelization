@@ -276,12 +276,13 @@ fit <- model$sample(
 fit$init_model_methods()
 
 theta <- mori::share(seq(0.01, 0.99, length.out = 100))
-fit <- mori::share(fit)
+fit_shared <- mori::share(fit)
 ```
 
 ```{r}
 #| label: mori-model-methods
-mori::is_shared(fit)
+fit_shared |> class() |> tail(1)
+mori::is_shared(fit_shared)
 mori::is_shared(theta)
 
 lp <- function(theta, fit) {
@@ -296,7 +297,7 @@ with(
   mirai::mirai_map(
     theta,
     lp,
-    .args = list(fit = fit)
+    .args = list(fit = fit_shared)
   )[] |>
     unlist() |>
     table()
@@ -306,7 +307,81 @@ with(
 #>                                                        100
 ```
 
-As we can see from the output of `mori::is_shared(fit)`, `fit` was not converted to a shared ALTREP form. `mori` successfully shares the plain numeric vector `theta`, but it does not share `fit`. The later `NULL` pointer errors arise when daemons try to call model methods through that non-shared `fit` object.
+As we can see from the output of `mori::is_shared(fit)`, `fit` was not converted to a shared ALTREP form[^3] as it is an R6 object. `mori` successfully shares the plain numeric vector `theta`, but it does not share `fit`. The later `NULL` pointer errors arise when daemons try to call model methods through that non-shared `fit` object.
+
+[^3]: ALTREP is short for "alternate representation", and "allows R to represent certain types of vectors very compactly." [@advr, sec. 2.4].
+
+```{r}
+#| label: mori-model-methods-list
+shared <- mori::share(list(fit = fit, theta = theta))
+c(
+  shared = mori::is_shared(shared),
+  fit = mori::is_shared(shared$fit),
+  theta = mori::is_shared(shared$theta)
+)
+
+with(
+  mirai::daemons(4),
+  mirai::mirai_map(
+    shared$theta,
+    function(theta, shared) {
+      shared$fit$log_prob(
+        shared$fit$unconstrain_variables(list(theta = theta)),
+        jacobian = FALSE
+      )
+    },
+    .args = list(shared = shared)
+  )[] |>
+    unlist() |>
+    table()
+)
+#> Error in .Call(<pointer: (nil)>, ext_model_ptr, variables):
+#       NULL value passed as symbol address
+#>                                                        100
+```
+
+We can see that even though we can technically use `mori::share()` on the list containing the `fit` object, it doesn't actually share `fit`.
+
+### Can we use `mori` to share a `loo` object?
+
+Yes. Since a `loo` object is made up of atomic data types, it can be serialized correctly.
+
+```{r}
+#| label: mori-share-loo
+loo <- loo::loo(loo::example_loglik_matrix(), save_psis = TRUE)
+shared_loo <- mori::share(loo)
+
+with(
+  mirai::daemons(4),
+  mirai::mirai_map(
+    1:4,
+    \(i, loo) loo$estimates["elpd_loo", "Estimate"],
+    .args = list(loo = shared_loo)
+  )[] |>
+    unlist()
+)
+
+loo$estimates["elpd_loo", "Estimate"]
+```
+
+We can check that the serialization is actually working using the pattern demonstrated in the `mori` readme, using `lobstr` to check the size of the object shared to each worker.
+
+```{r}
+#| label: mori-share-loo-altrep-sizes
+with(
+  mirai::daemons(4),
+  mirai::mirai_map(
+    1:4,
+    \(i, loo) lobstr::obj_size(loo) |> format(),
+    .args = list(loo = shared_loo)
+  )[] |>
+    unlist() |>
+    unique()
+)
+lobstr::obj_size(loo) |> format()
+```
+
+As we can see, each worker is just getting the small ALTREP pointer (824 bytes), not the full `loo` object.
 
 # Q3: Where is parallelization currently in use in `loo`? {#sec-q3-parallelization-loo}
 
