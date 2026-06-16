@@ -3,7 +3,7 @@ title: Parallelization in `loo` (current state)
 format: 
   typst: 
     toc: true
-    toc-depth: 3
+    toc-depth: 2
 number-sections: true
 bibliography: references.bib
 citeproc: true

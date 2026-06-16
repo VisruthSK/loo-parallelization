@@ -143,9 +143,15 @@ B3 also reports order-stratified posterior summaries for baseline-first and cand
 
 ```{r}
 #| label: session-info
-sessioninfo::session_info(
-  pkgs = c("loo", "mori", "mirai", "bench", "purrr", "sessioninfo"),
-  info = c("platform", "packages"),
-  dependencies = FALSE
-)
+renv::dependencies(here::here("docs", "report.qmd"), quiet = TRUE)$Package |>
+  unique() |>
+  c("sessioninfo") |>
+  setdiff("rmarkdown") |>
+  sessioninfo::session_info(
+    pkgs = _,
+    info = c("platform", "packages"),
+    dependencies = FALSE
+  )
+
+system2("quarto", c("typst", "--version"))
 ```
