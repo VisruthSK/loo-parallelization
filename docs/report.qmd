@@ -226,8 +226,6 @@ NB: the `mem_alloc` column should not be interpreted as total memory usage for `
 
 In short, it is probably a good idea to directly test the effects of serial `mirai` execution in `loo`, but it is likely that we will find that we should keep the unique single core execution path.
 
-<!-- TODO: maybe move to appendix? -->
-
 # Memory {#sec-memory}
 
 ## Memory usage and `loo` (Why does it matter?)
