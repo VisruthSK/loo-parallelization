@@ -1,10 +1,10 @@
 @misc{loo,
-  title = {loo: Efficient leave-one-out cross-validation and WAIC for
-           Bayesianmodels},
+  title = {loo: Efficient leave-one-out cross-validation and WAIC for Bayesian
+           models},
   author = {Aki Vehtari and Jonah Gabry and Måns Magnusson and Yuling Yao and
             Paul-Christian Bürkner and Topi Paananen and Andrew Gelman},
   year = {2025},
-  note = {R package version 2.9.0},
+  note = {R package version 2.10.1},
   url = {https://mc-stan.org/loo/},
 }
 
@@ -12,7 +12,7 @@
   title = {mirai: Minimalist Async Evaluation Framework for R},
   author = {Charlie Gao},
   year = {2026},
-  note = {R package version 2.7.0},
+  note = {R package version 2.7.1},
   url = {https://mirai.r-lib.org},
 }
 
@@ -29,13 +29,13 @@
   title = {mori: Shared Memory for R Objects},
   author = {Charlie Gao},
   year = {2026},
-  note = {R package version 0.2.0},
+  note = {R package version 0.2.1},
   url = {https://shikokuchuo.net/mori/},
 }
 
 @online{moripost,
-  author = {Charlie Gao},
   title = {mori: Shared memory for R objects},
+  author = {Charlie Gao},
   date = {2026-04-23},
   url = {https://opensource.posit.co/blog/2026-04-23_mori-0-1-0/},
   urldate = {2026-05-26},
@@ -43,19 +43,11 @@
 }
 
 @online{mirai-2.5.0,
-  author = {Charlie Gao},
   title = {mirai 2.5.0},
+  author = {Charlie Gao},
   date = {2025-09-05},
   url = {https://tidyverse.org/blog/2025/09/mirai-2-5-0/},
   organization = {Posit Software, PBC},
-}
-
-@manual{purrr,
-  title = {purrr: Functional Programming Tools},
-  author = {Hadley Wickham and Lionel Henry},
-  year = {2026},
-  note = {R package version 1.2.2},
-  url = {https://purrr.tidyverse.org/},
 }
 
 @manual{tune,
@@ -75,17 +67,33 @@
   url = {https://github.com/lorenzwalthert/touchstone},
 }
 
+@manual{purrr,
+  title = {purrr: Functional Programming Tools},
+  author = {Hadley Wickham and Lionel Henry},
+  year = {2026},
+  note = {R package version 1.2.2},
+  url = {https://purrr.tidyverse.org/},
+}
+
 @online{purrr-1.1.0,
-  author = {Charlie Gao, Hadley Wickham, Davis Vaughan, and Lionel Henry},
   title = {Parallel processing in purrr 1.1.0},
+  author = {Charlie Gao and Hadley Wickham and Davis Vaughan and Lionel Henry},
   date = {2025-07-10},
   url = {https://tidyverse.org/blog/2025/07/purrr-1-1-0-parallel/},
   organization = {Posit Software, PBC},
 }
 
+@online{crew,
+  title = {crew: A Distributed Worker Launcher Framework},
+  author = {William Michael Landau},
+  year = {2026},
+  note = {R package version 1.3.1.9000},
+  url = {https://wlandau.github.io/crew/},
+}
+
 @book{advr,
   title = {Advanced R},
-  author = {Wickham, Hadley},
+  author = {Hadley Wickham},
   edition = {2},
   year = {2019},
   publisher = {Chapman and Hall/CRC},
@@ -103,50 +111,15 @@
 }
 
 @article{PSIS,
+  title = {Pareto Smoothed Importance Sampling},
   author = {Aki Vehtari and Daniel Simpson and Andrew Gelman and Yuling Yao and
             Jonah Gabry},
-  title = {Pareto Smoothed Importance Sampling},
   journal = {Journal of Machine Learning Research},
   year = {2024},
   volume = {25},
   number = {72},
   pages = {1--58},
-  url = {http://jmlr.org/papers/v25/19-556.html},
-}
-
-@inproceedings{amdahl,
-  author = {Amdahl, Gene M.},
-  title = {Validity of the single processor approach to achieving large scale
-           computing capabilities},
-  year = {1967},
-  isbn = {9781450378956},
-  publisher = {Association for Computing Machinery},
-  address = {New York, NY, USA},
-  url = {https://doi.org/10.1145/1465482.1465560},
-  doi = {10.1145/1465482.1465560},
-  abstract = {For over a decade prophets have voiced the contention that the
-              organization of a single computer has reached its limits and that
-              truly significant advances can be made only by interconnection of a
-              multiplicity of computers in such a manner as to permit cooperative
-              solution. Variously the proper direction has been pointed out as
-              general purpose computers with a generalized interconnection of
-              memories, or as specialized computers with geometrically related
-              memory interconnections and controlled by one or more instruction
-              streams.},
-  booktitle = {Proceedings of the April 18-20, 1967, Spring Joint Computer
-               Conference},
-  pages = {483–485},
-  numpages = {3},
-  location = {Atlantic City, New Jersey},
-  series = {AFIPS '67 (Spring)},
-}
-
-@manual{profvis,
-  title = {profvis: Interactive Visualizations for Profiling R Code},
-  author = {Winston Chang and Javier Luraschi and Timothy Mastny},
-  year = {2024},
-  note = {R package version 0.4.0},
-  url = {https://profvis.r-lib.org/},
+  url = {https://jmlr.org/papers/v25/19-556.html},
 }
 
 @article{brms,
@@ -177,14 +150,6 @@
   url = {https://nanonext.r-lib.org},
 }
 
-@manual{crew,
-  title = {crew: A Distributed Worker Launcher Framework},
-  author = {William Michael Landau},
-  year = {2026},
-  note = {R package version 1.3.1.9000},
-  url = {https://wlandau.github.io/crew/},
-}
-
 @article{future,
   title = {A Unifying Framework for Parallel and Distributed Processing in {R}
            using Futures},
@@ -213,7 +178,7 @@
   month = jan,
   publisher = {arXiv},
   doi = {10.48550/arXiv.2601.17578},
-  url = {http://arxiv.org/abs/2601.17578},
+  url = {https://arxiv.org/abs/2601.17578},
   urldate = {2026-06-02},
   note = {arXiv:2601.17578 [cs.DC]},
   abstract = {The R ecosystem offers a rich variety of map-reduce application
@@ -245,4 +210,39 @@
   year = {2025},
   note = {R package version 1.0.0},
   url = {https://future.mirai.futureverse.org},
+}
+
+@inproceedings{amdahl,
+  title = {Validity of the single processor approach to achieving large scale
+           computing capabilities},
+  author = {Amdahl, Gene M.},
+  year = {1967},
+  isbn = {9781450378956},
+  publisher = {Association for Computing Machinery},
+  address = {New York, NY, USA},
+  url = {https://doi.org/10.1145/1465482.1465560},
+  doi = {10.1145/1465482.1465560},
+  abstract = {For over a decade prophets have voiced the contention that the
+              organization of a single computer has reached its limits and that
+              truly significant advances can be made only by interconnection of a
+              multiplicity of computers in such a manner as to permit cooperative
+              solution. Variously the proper direction has been pointed out as
+              general purpose computers with a generalized interconnection of
+              memories, or as specialized computers with geometrically related
+              memory interconnections and controlled by one or more instruction
+              streams.},
+  booktitle = {Proceedings of the April 18-20, 1967, Spring Joint Computer
+               Conference},
+  pages = {483–485},
+  numpages = {3},
+  location = {Atlantic City, New Jersey},
+  series = {AFIPS '67 (Spring)},
+}
+
+@manual{profvis,
+  title = {profvis: Interactive Visualizations for Profiling R Code},
+  author = {Winston Chang and Javier Luraschi and Timothy Mastny},
+  year = {2024},
+  note = {R package version 0.4.0},
+  url = {https://profvis.r-lib.org/},
 }
