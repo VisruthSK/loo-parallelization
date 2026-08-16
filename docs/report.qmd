@@ -4,6 +4,10 @@ format:
   typst: 
     toc: true
     toc-depth: 2
+    include-in-header:
+      text: |
+        #show link: set text(fill: blue)
+        #show link: underline
 number-sections: true
 bibliography: references.bib
 citeproc: true
@@ -22,8 +26,9 @@ filters:
 :::
 
 <!-- TODO: check bibliography -->
-<!-- TODO: remove code warnings selectively-->
-<!-- TODO: links to loo should be on version 2.10.1 -->
+<!-- TODO: remove code warnings selectively -->
+<!-- TODO: all links should be pinned to tags--if they are in dev version, probably shouldn't be here? but should be permalink instead. -->
+<!-- TODO: check for typos/grammar -->
 
 # Background
 
@@ -224,7 +229,7 @@ results |> summary(relative = TRUE)
 
 NB: the `mem_alloc` column should not be interpreted as total memory usage for `mirai`: `bench::mark()` records R heap allocations via `utils::Rprofmem()`, which is not able to track daemons' memory usage [@bench; @R; @mirai].
 
-`mirai_map()` with a single daemon has a median runtime of about 23ms, roughly 2.5x slower than the fastest in-process approach. Of course, in absolute terms the difference is negligible, adding only about 15ms. The memory usage of all in-process approaches are relatively close to one another. `vapply()`'s small memory overhead may probably be attributed to the extra work it does validating types and lengths and such [@R].
+`mirai_map()` with a single daemon has a median runtime of about 30ms, roughly half the speed of the fastest in-process approach. Of course, in absolute terms the difference is negligible, adding only about 20ms. The memory usage of all in-process approaches are relatively close to one another. `vapply()`'s small memory overhead may probably be attributed to the extra work it does validating types and lengths and such [@R].
 
 In short, it is probably a good idea to directly test the effects of serial `mirai` execution in `loo`, but it is likely that we will find that we should keep the unique single core execution path.
 
@@ -259,7 +264,7 @@ summary(results)
 summary(results, relative = TRUE)
 ```
 
-`mirai_map()` has a median runtime of about 30ms, about 1.5x faster than `lapply()`, which is roughly the payoff we would expect from four workers on tasks this small. `future_lapply()` over the same daemons takes about 150ms--about 8x slower than `mirai_map()`, and slower than not parallelizing at all.
+`mirai_map()` has a median runtime of about 8ms, about 1.25x faster than `lapply()`, which is roughly the payoff we would expect from four workers on tasks this small. `future_lapply()` over the same daemons takes about 30ms--about 7x slower than `mirai_map()`, and slower than not parallelizing at all.
 
 Removing the work isolates overhead so we can see what using `mirai` through `future` costs.
 
@@ -497,15 +502,19 @@ In [`waic.function()`](https://github.com/stan-dev/loo/blob/master/R/waic.R#L109
 
 Lastly, in [`ap_psis.array()`](https://github.com/stan-dev/loo/blob/master/R/psis_approximate_posterior.R#L101), which mostly just converts array arguments to matrices before passing the buck to the matrix method, we can note that cores gets hardcoded to 1 when calling `ap_psis.matrix()`. There doesn't seem to be any real reason to do this, eating the input `cores` like in the first example; unlike there though, we pass `cores = 1`. This is not a huge issue because users probably don't use this function, since most times they would be working directly with matrixes. Further evidencing this hypothesis is [this line](https://github.com/stan-dev/loo/blob/master/R/psis_approximate_posterior.R#L100) which should error out since it references a nonexistent `r_eff`. That obviously needs to be fixed, and this function tested.
 
-## Performance testing
+
+The `elpd_loo_approximation()`, `waic.function()`, and `ap_psis.array()` changes are implemented in [#371](https://github.com/stan-dev/loo/pull/371).
 
 <!-- TODO: profiling -->
+<!-- 
+## Performance testing
 
 - short description of approach for running performance test
 - run performance test
 - report results
 - identify bottlenecks
-- provide first ideas whether any of the identified bottlenecks can benefit from parallelization
+- provide first ideas whether any of the identified bottlenecks can benefit from parallelization 
+-->
 
 ## Vectorization
 
@@ -634,7 +643,7 @@ mirai_map(
 )
 ```
 
-We first are doing something parallely over values of `xs`, but then we try to work in parallel again for each value from `xs`! The main problem here is oversubscription: we spawn `n` outer workers, let say, then for each we spawn another `m` inner workers. In the package context though, this implementation would be far more complex, and would probably be hidden completely from users. This becomes a problem when a user sets `n`, the outer parallel workers, to \# cores - 1[^3], as the actual number of parallel tasks could be as large as $n * m$. Oversubscription is bad because, in this context, we are mostly running CPU heavy tasks where each process takes time and needs its own core. Oversubscription is promising more parallelization than what the hardware can provide--note that parallelization usually has some fixed startup costs as well (see @sec-q1-mirai-serial), so we would probably lose performance. In `loo` specifically, we must be careful when parallelizing functions to ensure we do not accidentally have nested parallelization. Note that `mirai` exposes a function, [`on_daemon()`](https://mirai.r-lib.org/reference/on_daemon.html), which may be helpful to avoid nested parallelization [@mirai]. However, this only accounts for nested `mirai` runs, and not nested parallelization on the whole.
+We first are doing something parallely over values of `xs`, but then we try to work in parallel again for each value from `xs`! The main problem here is oversubscription: we spawn `n` outer workers, let say, then for each we spawn another `m` inner workers. In the package context though, this implementation would be far more complex, and would probably be hidden completely from users. This becomes a problem when a user sets `n`, the outer parallel workers, to \# cores - 1[^3], as the actual number of parallel tasks could be as large as $n * m$. Oversubscription is bad because, in this context, we are mostly running CPU heavy tasks where each process takes time and needs its own core. Oversubscription is promising more parallelization than what the hardware can provide--note that parallelization usually has some fixed startup costs as well (see @sec-q1-mirai-serial), so we would probably lose performance. In `loo` specifically, we must be careful when parallelizing functions to ensure we do not accidentally have nested parallelization. Note that `mirai` exposes a function, [`on_daemon()`](https://mirai.r-lib.org/reference/on_daemon.html), which may be helpful to avoid nested parallelization [@mirai]. Further, note that calling `daemons(n)` from inside a `mirai_map()` worker errors rather than starting another local worker pool [@mirai]. This removes one source of accidental nesting after migration. However, explicitly configured nested maps are still possible, so `loo` still needs its own guards around inner parallel operations.
 
 [^3]: This is a common heuristic for number of threads/daemons/workers/etc. to use because it leaves 1 core free to do normal computer things, lest the system become unresponsive. Note this doesn't account for memory usage at all--if you have 8GB memory but send out n tasks, each using 2GB, you may run out of memory (see @sec-memory).
 
@@ -651,10 +660,16 @@ We first are doing something parallely over values of `xs`, but then we try to w
 
 However, we know that other packages also call `loo` functions, which is another potential vector for nested parallelization. To this end, it seems like `brms` is the only (Stan) package where this could even be vaguely possible, but doing so seems to necessitate wilful parallelization not provided natively by `brms`. This merits further investigation, but it seems like we can (softly) table concerns regarding external nested parallelization for now.
 
-<!-- TODO -->
-
-Make a list of packages of which you have thought of: \* package name \* Any issues that you see? \* (make a short note even if you don't see issues)
-
+* [`brms`](https://github.com/paul-buerkner/brms)
+  * No issues.
+  * `cores` appears nowhere in [`R/loo.R`](https://github.com/paul-buerkner/brms/blob/master/R/loo.R); [`prepare_loo_args()`](https://github.com/paul-buerkner/brms/blob/master/R/loo.R#L281) passes `...` straight through, so `cores` only reaches `loo()` if the user supplies it.
+* [`rstanarm`](https://github.com/stan-dev/rstanarm)
+  * No issues.
+  * [`kfold.stanreg()`](https://github.com/stan-dev/rstanarm/blob/97fdba425ea0bd280c25928f118d247e617f43ae/R/loo-kfold.R#L117-L121) explicitly avoids nested parallelism. With `cores` > 1, it parallelizes across folds and forces each Stan refit to use one core. With `cores` = 1, folds are fitted sequentially and each refit may instead use `getOption("mc.cores")` cores for its MCMC chains.
+* [`projpred`](https://github.com/stan-dev/projpred)
+  * No issues.
+  * Pins `loo` calls inside the cross-validation loop to [`cores = 1`](https://github.com/stan-dev/projpred/blob/master/R/cv_varsel.R#L677).
+  
 # References {toc-depth=0}
 
 ::: {#refs}
