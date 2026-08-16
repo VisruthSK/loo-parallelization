@@ -143,6 +143,7 @@ B3 also reports order-stratified posterior summaries for baseline-first and cand
 
 ```{r}
 #| label: session-info
+#| cache: false
 renv::dependencies(here::here("docs", "report.qmd"), quiet = TRUE)$Package |>
   unique() |>
   c("sessioninfo") |>
@@ -155,3 +156,5 @@ renv::dependencies(here::here("docs", "report.qmd"), quiet = TRUE)$Package |>
 
 system2("quarto", c("typst", "--version"))
 ```
+
+<!-- TODO: why quarto typst version not working? -->

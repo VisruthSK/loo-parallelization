@@ -141,10 +141,108 @@
   series = {AFIPS '67 (Spring)},
 }
 
+@manual{profvis,
+  title = {profvis: Interactive Visualizations for Profiling R Code},
+  author = {Winston Chang and Javier Luraschi and Timothy Mastny},
+  year = {2024},
+  note = {R package version 0.4.0},
+  url = {https://profvis.r-lib.org/},
+}
+
+@article{brms,
+  title = {{brms}: An {R} Package for {Bayesian} Multilevel Models Using {Stan}},
+  author = {Paul-Christian Bürkner},
+  journal = {Journal of Statistical Software},
+  year = {2017},
+  volume = {80},
+  number = {1},
+  pages = {1--28},
+  doi = {10.18637/jss.v080.i01},
+}
+
+@misc{wine,
+  title = {Wine Quality},
+  author = {Paulo Cortez and A. Cerdeira and F. Almeida and T. Matos and J. Reis
+            },
+  year = {2009},
+  publisher = {UCI Machine Learning Repository},
+  doi = {10.24432/C56S3T},
+}
+
+@manual{nanonext,
+  title = {nanonext: NNG (Nanomsg Next Gen) Lightweight Messaging Library},
+  author = {Charlie Gao},
+  year = {2026},
+  note = {R package version 1.9.1},
+  url = {https://nanonext.r-lib.org},
+}
+
 @manual{crew,
   title = {crew: A Distributed Worker Launcher Framework},
   author = {William Michael Landau},
   year = {2026},
   note = {R package version 1.3.1.9000},
   url = {https://wlandau.github.io/crew/},
+}
+
+@article{future,
+  title = {A Unifying Framework for Parallel and Distributed Processing in {R}
+           using Futures},
+  author = {Henrik Bengtsson},
+  journal = {The R Journal},
+  year = {2021},
+  volume = {13},
+  number = {2},
+  pages = {208--227},
+  doi = {10.32614/RJ-2021-048},
+}
+
+@manual{future.apply,
+  title = {future.apply: Apply Function to Elements in Parallel using Futures},
+  author = {Henrik Bengtsson},
+  year = {2026},
+  note = {R package version 1.20.2},
+  url = {https://future.apply.futureverse.org},
+}
+
+@misc{bengtsson_unified_2026,
+  title = {A unified approach to concurrent, parallel map-reduce in {R} using
+           futures},
+  author = {Bengtsson, Henrik},
+  year = {2026},
+  month = jan,
+  publisher = {arXiv},
+  doi = {10.48550/arXiv.2601.17578},
+  url = {http://arxiv.org/abs/2601.17578},
+  urldate = {2026-06-02},
+  note = {arXiv:2601.17578 [cs.DC]},
+  abstract = {The R ecosystem offers a rich variety of map-reduce application
+              programming interfaces (APIs) for iterative computations, yet
+              parallelizing code across these diverse frameworks requires
+              learning multiple, often incompatible, parallel APIs. The futurize
+              package addresses this challenge by providing a single function,
+              futurize(), which transpiles sequential map-reduce expressions into
+              their parallel equivalents in the future ecosystem, which performs
+              all the heavy lifting. By leveraging R's native pipe operator,
+              users can parallelize existing code with minimal refactoring --
+              often by simply appending `|> futurize()' to an expression. The
+              package supports classical map-reduce functions from base R, purrr,
+              crossmap, foreach, plyr, BiocParallel, e.g., lapply(xs, fcn) |>
+              futurize() and map(xs, fcn) |> futurize(), as well as a growing set
+              of domain-specific packages, e.g., boot, caret, glmnet, lme4, mgcv,
+              and tm. By abstracting away the underlying parallel machinery, and
+              unifying handling of future options, the package enables developers
+              to declare what to parallelize via futurize(), and end-users to
+              choose how via plan(). This article describes the philosophy,
+              design, and implementation of futurize, demonstrates its usage
+              across various map-reduce paradigms, and discusses its role in
+              simplifying parallel computing in R.},
+}
+
+@manual{future.mirai,
+  title = {future.mirai: A Future API for Parallel Processing using mirai},
+  author = {Henrik Bengtsson},
+  year = {2025},
+  note = {R package version 1.0.0},
+  url = {https://future.mirai.futureverse.org},
 }
