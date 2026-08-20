@@ -65,12 +65,93 @@ Parallel asynchronous map that dispatches tasks to daemons. Returns a list of un
 
 The collect operator on a `mirai` result. Blocks until all dispatched tasks are complete and returns their values.
 
+## How does `mirai` work? {#sec-mirai-internals}
+
+By default, `mirai` uses a dispatcher which _daemons_ call in to[^1]. `daemons(4)` on a laptop spawns four background R processes and hands each one an IPC address to connect back on, whereas `daemons(url = host_url())` opens the listener and waits, leaving the user free to start `daemon()` processes wherever they like. Since the connection is always initiated by the daemon, only the host needs a routable address, and going from local cores to a compute node changes the URL and nothing else. This is what allows `mirai`, and thus `loo`, to be so flexible about where computations are run---the host process needs to know very little about each daemon. Tasks travel over those connections as serialized R objects, and daemons block. NNG hands over a result as soon as it lands, so an idle daemon costs nothing and there is no supervising loop running in R. This is what makes `mirai()` asynchronous: what it returns is a placeholder and `[]` (see the glossary) is the blocking mechanism to actually collect results.
+
+[^1]: Note that `mirai` is driven by `nanonext` [@nanonext], which binds NNG (Nanomsg Next Gen), a C messaging library.
+
+By default `daemons()` also starts a dispatcher, which queues tasks and hands each one off as a daemon frees up, giving first-in-first-out (FIFO) scheduling instead of the fixed round-robin assignment used when `dispatcher = FALSE` (which is also what `parLapply()` essentially does). This matters wherever task costs are uneven. The dispatcher is also what `stop_mirai()` and `.timeout` rely on to cancel a task that is already running, and it is where the `memory` argument blocks new tasks until the bytes queued for dispatch drop under a cap.
+
+### Reproducibility with `mirai`
+
+Most parallelized computations in `loo` are deterministic, but some paths evaluate user-supplied functions on workers, and those functions may consume random numbers. Changing the parallel backend can therefore change their RNG behavior. This section records how `mirai` handles seeding and reproducibility. `mirai` uses the L'Ecuyer PRNG.
+
+Even if we set the same seed, we won't get the same results from `lapply()` and `mirai_map()`. Here, we can see that even if we use the same seed (`set.seed(0)` before each call), randomly generating a few numbers from an exponential distribution changes depending on whether we call `lapply()` or `mirai_map()`. More specifically, both maps are essentially doing `rexp(1), rexp(2), rexp(3), rexp(4)`.[^2] In this snippet we are using 4 daemons, so in the `mirai_map()` call, we are starting 4 RNG streams which are being derived from the main stream (see [in source](https://github.com/r-lib/mirai/blob/19ce00aeaf5cbc9d583a1d1409137692dee1d932/R/daemons.R#L626)).
+
+[^2]: Somewhat orthogonal to this section, but note that `with(set.seed(0), lapply(1:4, rexp) |> unlist())` is equivalent to `with(set.seed(0), rexp(10))`.
+
+```{r}
+#| label: serial-vs-mirai
+set.seed(0)
+str(lapply(1:4, rexp))
+
+# using with() just for scoping
+with(
+  {
+    set.seed(0) # set seed in main process
+    mirai::daemons(4) # start 4 background processes
+  },
+  # mirai_map() is an async map
+  # `[]` blocks to collect results
+  str(mirai::mirai_map(1:4, rexp)[])
+)
+```
+
+Note that by default if `daemons()` is called without setting a seed, the RNG streams aren't reproducible (just like results in serial execution without setting a seed)---ensuring "statistical validity but not numerical reproducibility between runs" [@mirai-2.5.0]. If we rerun the exact same `mirai` code, we do get the same results:
+
+```{r}
+#| label: mirai-repeat
+with(
+  {
+    set.seed(0)
+    mirai::daemons(4)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
+```
+
+With 2 daemons, `mirai_map(1:4, rexp)` still creates four tasks: `rexp(1), rexp(2), rexp(3), rexp(4)`. The first two tasks run on the two available daemons (so they have the same results as before); later tasks are assigned as daemons become free. Since RNG streams are tied to daemons, changing the number of daemons changes which stream each task uses, so the output changes. A plain `set.seed(0)` is just seeding the host session and making each daemon derive its RNG state from host.
+
+```{r}
+#| label: mirai-daemon-count
+with(
+  {
+    set.seed(0)
+    mirai::daemons(2)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
+```
+
+Setting a seed manually when launching daemons gets reproducibility (stability over runs), "regardless of the number of daemons used." [@mirai-2.5.0]. Underneath the hood, `mirai` creates a new deterministic RNG stream per `mirai()` evaluation, not per daemon, which ensures that results are stable irrespective of daemon count.
+
+```{r}
+#| label: mirai-seed-stable
+with(
+  {
+    mirai::daemons(4, seed = 0)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
+
+with(
+  {
+    mirai::daemons(3, seed = 0)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
+```
+
+Note that `seed = 0` means something different in base R versus in `mirai`, that is the same seed doesn't automatically guarantee the same results between serial and parallel execution. In essence, reproducibility is the users' responsibility, akin to compute setups.
+
 ## Session Info
 
 ```{r}
 #| label: session-info
 #| cache: false
 #| warning: false
+#| echo: false
 renv::dependencies(here::here("docs", "report.qmd"), quiet = TRUE)$Package |>
   unique() |>
   c("sessioninfo") |>
