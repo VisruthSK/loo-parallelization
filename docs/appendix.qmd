@@ -4,12 +4,12 @@
 
 #### Serial
 
-Tasks run one at a time, strictly one after another with no overlap. Always implies synchronous execution.
+Tasks run one at a time, strictly one after another with no overlap.
 
 #### Synchronous
 
 The calling code blocks and waits for a result before continuing. Does not imply serial as tasks may run in parallel while the caller waits.
-Example: Parallel sampling across 4 chains but before we can continue, we have to wait until all 4 chains are finished.
+Example: Parallel sampling across four chains but before we can continue, we have to wait until all four chains are finished.
 
 #### Asynchronous
 
@@ -20,8 +20,8 @@ The calling code moves on immediately after dispatching a task and can check bac
 Multiple tasks run at the same time across separate workers. Can be combined with either synchronous or asynchronous calling patterns. 
 Examples:
 
-+ Synchronous parallel: running 4 chains in parallel but blocking until all are done.
-+ Asynchronous parallel: dispatching multiple model fits to background processes. The main session fires off each model fit without blocking, so you could immediately dispatch the next model. Each background process then internally runs its 4 chains in parallel (sync). 
++ Synchronous parallel: running four chains in parallel but blocking until all are done.
++ Asynchronous parallel: dispatching multiple model fits to background processes. The main session fires off each model fit without blocking, so you could immediately dispatch the next model. Each background process then internally runs its four chains in parallel (sync). 
 
 #### Forking
 
@@ -37,7 +37,7 @@ A persistent background R process that stays alive between tasks, waiting to rec
 
 #### Persistent workers
 
-A worker process that remains alive between tasks and across multiple calls, retaining its state and loaded packages. Avoids the startup cost of spawning a new process per job. Contrast with temporary workers (e.g. forked processes in `mclapply()`) that are created for a single call and exit when it finishes.
+A worker process that remains alive between tasks and across multiple calls, retaining its state and loaded packages. Avoids the startup cost of spawning a new process per job. Contrast with temporary workers (e.g., forked processes in `mclapply()`) that are created for a single call and exit when it finishes.
 
 ### Functions
 
@@ -59,90 +59,99 @@ Launches $n$ persistent background workers for the current `mirai` session. Work
 
 #### `mirai_map()`
 
-Parallel async map that dispatches tasks to daemons. Returns a list of unresolved `mirai` objects immediately. Append `[]` to block and collect all results.
+Parallel asynchronous map that dispatches tasks to daemons. Returns a list of unresolved `mirai` objects immediately. Append `[]` to block and collect all results.
 
 #### `[]`
 
 The collect operator on a `mirai` result. Blocks until all dispatched tasks are complete and returns their values.
 
-## `b3`: Bayesian Branch Benchmarking
+## How does `mirai` work? {#sec-mirai-internals}
 
-What follows is a proposal for `b3`, a benchmarking tool designed to replace `touchstone` in Stan R packages and is far more flexible and broader in scope. `b3` is included here in the appendix as it could potentially improve our PR-level performance benchmarking, both for time and memory usage.
+By default, `mirai` uses a dispatcher which _daemons_ call in to[^1]. `daemons(4)` on a laptop spawns four background R processes and hands each one an IPC address to connect back on, whereas `daemons(url = host_url())` opens the listener and waits, leaving the user free to start `daemon()` processes wherever they like. Since the connection is always initiated by the daemon, only the host needs a routable address, and going from local cores to a compute node changes the URL and nothing else. This is what allows `mirai`, and thus `loo`, to be so flexible about where computations are run---the host process needs to know very little about each daemon. Tasks travel over those connections as serialized R objects, and daemons block. NNG hands over a result as soon as it lands, so an idle daemon costs nothing and there is no supervising loop running in R. This is what makes `mirai()` asynchronous: what it returns is a placeholder and `[]` (see the glossary) is the blocking mechanism to actually collect results.
 
----
+[^1]: Note that `mirai` is driven by `nanonext` [@nanonext], which binds NNG (Nanomsg Next Gen), a C messaging library.
 
-`b3` aims to measure language-agnostic end-to-end branch-vs-baseline performance diffs. `b3`'s philosophy is akin to touchstone @touchstone, but shucks the R focus--`b3` handles orchestration, measurement, and reporting, while users must provide their project runtime, dependency setup, and benchmark command. `b3` compares complete repository states: if the candidate branch changes the benchmark, data, config, or dependencies, that change is part of the measured result.
+By default `daemons()` also starts a dispatcher, which queues tasks and hands each one off as a daemon frees up, giving first-in-first-out (FIFO) scheduling instead of the fixed round-robin assignment used when `dispatcher = FALSE` (which is also what `parLapply()` essentially does). This matters wherever task costs are uneven. The dispatcher is also what `stop_mirai()` and `.timeout` rely on to cancel a task that is already running, and it is where the `memory` argument blocks new tasks until the bytes queued for dispatch drop under a cap.
 
-### Core
+### Reproducibility with `mirai`
 
-`b3` is one prebuilt native binary.
+Most parallelized computations in `loo` are deterministic, but some paths evaluate user-supplied functions on workers, and those functions may consume random numbers. Changing the parallel backend can therefore change their RNG behavior. This section records how `mirai` handles seeding and reproducibility. `mirai` uses the L'Ecuyer PRNG.
 
-Users only set up their project runtime and declare their benchmarks.
+Even if we set the same seed, we won't get the same results from `lapply()` and `mirai_map()`. Here, we can see that even if we use the same seed (`set.seed(0)` before each call), randomly generating a few numbers from an exponential distribution changes depending on whether we call `lapply()` or `mirai_map()`. More specifically, both maps are essentially doing `rexp(1), rexp(2), rexp(3), rexp(4)`.[^2] In this snippet we are using 4 daemons, so in the `mirai_map()` call, we are starting 4 RNG streams which are being derived from the main stream (see [in source](https://github.com/r-lib/mirai/blob/19ce00aeaf5cbc9d583a1d1409137692dee1d932/R/daemons.R#L626)).
 
-R users set up R.
-Node users set up Node.
-Rust users set up Rust.
-Python users set up Python.
+[^2]: Somewhat orthogonal to this section, but note that `with(set.seed(0), lapply(1:4, rexp) |> unlist())` is equivalent to `with(set.seed(0), rexp(10))`.
 
-Setup and benchmark commands are opaque subprocesses specified by the user which `b3` simply executes. On Unix they may be Bash; on Windows they may be PowerShell; for R projects they may be `Rscript` directly.
+```{r}
+#| label: serial-vs-mirai
+set.seed(0)
+str(lapply(1:4, rexp))
 
-`b3` handles:
+# using with() just for scoping
+with(
+  {
+    set.seed(0) # set seed in main process
+    mirai::daemons(4) # start 4 background processes
+  },
+  # mirai_map() is an async map
+  # `[]` blocks to collect results
+  str(mirai::mirai_map(1:4, rexp)[])
+)
+```
 
-git worktrees
-runtime preset environment variables
-optional setup commands
-paired randomized benchmark runs
-timing
-process-tree peak memory polling
-Bayesian bootstrap posterior summaries
+Note that by default if `daemons()` is called without setting a seed, the RNG streams aren't reproducible (just like results in serial execution without setting a seed)---ensuring "statistical validity but not numerical reproducibility between runs" [@mirai-2.5.0]. If we rerun the exact same `mirai` code, we do get the same results:
 
-### Evaluation Environment
+```{r}
+#| label: mirai-repeat
+with(
+  {
+    set.seed(0)
+    mirai::daemons(4)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
+```
 
-Similar to `touchstone`, `b3` separates environment isolation from dependency caching. Each variant gets its own environment inside its worktree, so baseline and candidate can resolve different dependency graphs safely. Download caches are shared across variants and CI runs, so unchanged packages do not need to be downloaded or rebuilt repeatedly. Of course, `b3` does not resolve dependencies itself--it exposes runtime presets that configure standard env/cache locations, then runs the user’s setup command. Users can always opt into specifying everything manually. Regardless, dependency resolution remains the responsibility of the project’s normal tooling: `rv`, `renv`, `pak`, `uv`, `npm`, `cargo`, etc. 
+With 2 daemons, `mirai_map(1:4, rexp)` still creates four tasks: `rexp(1), rexp(2), rexp(3), rexp(4)`. The first two tasks run on the two available daemons (so they have the same results as before); later tasks are assigned as daemons become free. Since RNG streams are tied to daemons, changing the number of daemons changes which stream each task uses, so the output changes. A plain `set.seed(0)` is just seeding the host session and making each daemon derive its RNG state from host.
 
-`b3` can optionally run a cleanup command before each measured run. By default, dependency environments are reused across runs, but benchmark-created state is the user’s responsibility. Benchmarks should either avoid persistent side effects which impact performance, or configure cleanup so each measured run starts from a comparable state.
+```{r}
+#| label: mirai-daemon-count
+with(
+  {
+    set.seed(0)
+    mirai::daemons(2)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
+```
 
-### Measurement
+Setting a seed manually when launching daemons gets reproducibility (stability over runs), "regardless of the number of daemons used." [@mirai-2.5.0]. Underneath the hood, `mirai` creates a new deterministic RNG stream per `mirai()` evaluation, not per daemon, which ensures that results are stable irrespective of daemon count.
 
-`b3` can run one or more named benchmarks. Each benchmark gets its own paired randomized baseline/candidate runs and its own posterior summaries for time and memory usage. For each paired block, randomize order: baseline then candidate, or candidate then baseline. Each command runs from its own worktree.
+```{r}
+#| label: mirai-seed-stable
+with(
+  {
+    mirai::daemons(4, seed = 0)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
 
-`b3` records: 
+with(
+  {
+    mirai::daemons(3, seed = 0)
+  },
+  str(mirai::mirai_map(1:4, rexp)[])
+)
+```
 
-elapsed_sec
-average_memory_bytes
-peak_memory_bytes
-exit_status
-
-Runs with non-zero exit status are reported separately and excluded from posterior summaries unless explicitly configured otherwise. Note that memory measurement is best-effort and potentially platform-dependent. Short-lived spikes, detached subprocesses, permission boundaries, and OS-specific memory accounting may affect the reported value. Limitations/scope will be made abundantly clear in the API.
-
-### Analysis
-
-For each metric, B3 computes paired log ratios:
-
-$$
-d_i = log(candidate_i / baseline_i)
-$$
-
-B3 uses a Bayesian bootstrap over paired blocks: each posterior draw samples Dirichlet weights over blocks, computes the weighted mean of the paired log ratios. B3 also employs mild shrinkage toward 0 (which can be disabled).
-
-B3 reports:
-
-median candidate/baseline ratio
-median percent change
-credible intervals
-P(candidate worse)
-P(candidate >1%, >5%, >10%, >20% worse)
-
-B3 also reports order-stratified posterior summaries for baseline-first and candidate-first paired blocks. If the order-stratified effects disagree materially, this _may_ mean that the results are unstable and that the number of runs should be increased. The benchmarks/commands may be suspect as well. In the future, B3 might expand to a more complex model which can better capture order effects.
-
-### Misc.
-
-`b3` will also help scaffold GHA workflows to quickstart using `b3` for PR-level performance reports. Extensions to the project include a more complex model, wrappers around the core CLI in various host languages to facilitate usage, first-class support for standing up non-GHA CI/CD workflows, and so on.
+Note that `seed = 0` means something different in base R versus in `mirai`, that is the same seed doesn't automatically guarantee the same results between serial and parallel execution. In essence, reproducibility is the users' responsibility, akin to compute setups.
 
 ## Session Info
 
 ```{r}
 #| label: session-info
+#| cache: false
+#| warning: false
+#| echo: false
 renv::dependencies(here::here("docs", "report.qmd"), quiet = TRUE)$Package |>
   unique() |>
   c("sessioninfo") |>
@@ -152,6 +161,4 @@ renv::dependencies(here::here("docs", "report.qmd"), quiet = TRUE)$Package |>
     info = c("platform", "packages"),
     dependencies = FALSE
   )
-
-system2("quarto", c("typst", "--version"))
 ```
